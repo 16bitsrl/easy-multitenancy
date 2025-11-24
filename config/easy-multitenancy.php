@@ -1,6 +1,5 @@
 <?php
 
-// config for Bit16/EasyMultitenancy
 return [
 
     'database' => [
@@ -24,6 +23,12 @@ return [
 
     'queue' => [
         'tenant_aware' => env('TENANT_QUEUE_AWARE', true),
+    ],
+
+    'seeders' => [
+        'on_create' => [
+            // eventual Seeder to run after new tenant database creation
+        ],
     ],
 
     'routes' => [

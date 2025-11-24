@@ -4,7 +4,6 @@ namespace Bit16\EasyMultitenancy\Commands;
 
 use Bit16\EasyMultitenancy\Facades\Tenant;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Artisan;
 
 class SeedTenantCommand extends Command
 {
@@ -32,7 +31,7 @@ class SeedTenantCommand extends Command
             $options['--class'] = $class;
         }
 
-        Artisan::call('db:seed', $options);
+        $this->call('db:seed', $options);
 
         $this->info("Tenant '{$tenant}' seeded successfully.");
 

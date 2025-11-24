@@ -48,6 +48,13 @@ return [
         'tenant_aware' => env('TENANT_QUEUE_AWARE', true),
     ],
 
+    'seeders' => [
+        // Seeders to run when creating a new tenant
+        'on_create' => [
+            //  \Database\Seeders\DatabaseSeeder::class
+        ],
+    ],
+
     'routes' => [
         'parameter' => 'tenant',
         'middleware' => ['web'],
@@ -263,13 +270,9 @@ composer test
 
 Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
 
-## Contributing
-
-Please see [CONTRIBUTING](CONTRIBUTING.md) for details.
-
 ## Security Vulnerabilities
 
-Please review [our security policy](../../security/policy) on how to report security vulnerabilities.
+If you discover a security vulnerability, please email Mattia Trapani at mt@16bit.it.
 
 ## Credits
 
