@@ -32,7 +32,7 @@ class CreateTenantCommand extends Command
             }
         );
 
-        $name = $this->sanitizeTenantName($name);
+        $name = Tenant::sanitize($name);
 
         if (Tenant::exists($name)) {
             $this->error("Tenant '{$name}' already exists.");
@@ -201,20 +201,5 @@ class CreateTenantCommand extends Command
         }
 
         return null;
-    }
-
-    protected function sanitizeTenantName(string $name): string
-    {
-        $name = trim($name);
-        $name = strtolower($name);
-        $name = preg_replace('/[^a-z0-9\-]/', '', $name);
-        $name = preg_replace('/\.\.+/', '', $name);
-        $name = str_replace(['/', '\\', "\0"], '', $name);
-
-        if (empty($name)) {
-            throw new \InvalidArgumentException('Tenant name cannot be empty after sanitization');
-        }
-
-        return $name;
     }
 }

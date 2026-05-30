@@ -31,21 +31,41 @@ return [
         'extension' => '.sqlite',
     ],
 
+    // Optional central (landlord) connection, reachable even while a tenant is active.
+    'central' => [
+        'enabled' => env('TENANT_CENTRAL_ENABLED', false),
+        'connection' => env('TENANT_CENTRAL_CONNECTION', 'central'),
+    ],
+
     'cache' => [
         'prefix_enabled' => env('TENANT_CACHE_PREFIX', true),
     ],
 
     'session' => [
-        'prefix_enabled' => env('TENANT_SESSION_PREFIX', true),
+        'suffix_enabled' => env('TENANT_SESSION_SUFFIX', true),
+        'use_tenant_db' => env('TENANT_SESSION_USE_DB', false),
     ],
 
     'storage' => [
-        'prefix_enabled' => env('TENANT_STORAGE_PREFIX', true),
+        'suffix_enabled' => env('TENANT_STORAGE_SUFFIX', true),
         'path' => env('TENANT_STORAGE_PATH', 'tenants'),
+    ],
+
+    'track_recent_tenants' => env('TENANT_TRACK_RECENT', false),
+
+    'recent_tenants' => [
+        'cookie' => env('TENANT_RECENT_COOKIE', 'em_recent_tenants'),
+        'max' => (int) env('TENANT_RECENT_MAX', 5),
+        'lifetime' => (int) env('TENANT_RECENT_LIFETIME', 43200),
     ],
 
     'queue' => [
         'tenant_aware' => env('TENANT_QUEUE_AWARE', true),
+        'strict_mode' => env('TENANT_QUEUE_STRICT', true),
+        'debug_logging' => env('TENANT_QUEUE_DEBUG', false),
+        'excluded_jobs' => [],
+        'excluded_patterns' => [],
+        'exclusion_interface' => \Bit16\EasyMultitenancy\Contracts\GlobalJob::class,
     ],
 
     'seeders' => [
@@ -82,7 +102,7 @@ return [
 - **Automatic route prefixing** with tenant identification
 - **Seamless database switching** based on URL
 - **Tenant-isolated storage, cache, and sessions**
-- **Queue job tenant awareness** with the `TenantAware` trait
+- **Automatic tenant injection** for queued jobs
 - **Artisan commands** for tenant management
 - **Events** for tenant lifecycle hooks
 - **Custom URL generator** for tenant-aware routing
@@ -168,29 +188,6 @@ Tenant::identify('acme');
 Tenant::forget();
 ```
 
-### Tenant-Aware Queue Jobs
-
-Add the `TenantAware` trait to your jobs to ensure they run in the correct tenant context:
-
-```php
-use Bit16\EasyMultitenancy\Traits\TenantAware;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
-
-class ProcessOrder implements ShouldQueue
-{
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, TenantAware;
-
-    public function handle()
-    {
-        // Job automatically runs in the correct tenant context
-    }
-}
-```
-
 ### Events
 
 The package dispatches several events you can listen to:
@@ -217,6 +214,85 @@ Event::listen(DatabaseSwitched::class, function ($event) {
 Event::listen(TenantNotFound::class, function ($event) {
     // $event->tenant
 });
+```
+
+### Central (Landlord) Connection
+
+Some data is shared across all tenants (e.g. the list of tenants, global users, billing).
+Enable the optional central connection to keep the landlord database reachable even while a
+tenant connection is active:
+
+```php
+// config/easy-multitenancy.php
+'central' => [
+    'enabled' => env('TENANT_CENTRAL_ENABLED', true),
+    'connection' => env('TENANT_CENTRAL_CONNECTION', 'central'),
+],
+```
+
+When enabled, a `central` connection is registered pointing at your application's default
+connection as configured at boot. Add the `UsesCentralConnection` trait to any model that must
+always query the central database, regardless of the current tenant:
+
+```php
+use Bit16\EasyMultitenancy\Traits\UsesCentralConnection;
+use Illuminate\Database\Eloquent\Model;
+
+class Organization extends Model
+{
+    use UsesCentralConnection;
+}
+```
+
+> **Storage note:** when storage isolation is enabled the package routes the **default** filesystem
+> disk to a per-tenant directory (and registers a `tenant` disk). Calls that target the default
+> disk are tenant-scoped; explicit `Storage::disk('local')` calls are not.
+
+### Central Routes
+
+Declare landlord routes that must never be tenant-prefixed (marketing pages, tenant sign-up,
+the landlord dashboard) with `Tenant::centralRoutes()`:
+
+```php
+use Bit16\EasyMultitenancy\Facades\Tenant;
+use Illuminate\Support\Facades\Route;
+
+Tenant::centralRoutes(function () {
+    Route::get('/', [LandingController::class, 'index']);
+    Route::get('/pricing', [PricingController::class, 'index']);
+});
+```
+
+These routes keep their original URI (no `{tenant}/` prefix), run on the default/central
+connection, and are skipped by tenant identification.
+
+### Recently Visited Tenants
+
+Enable `track_recent_tenants` to keep a per-browser list of recently visited tenants in a shared
+cookie. Read it (typically from a central route) with `Tenant::getRecentTenants()`:
+
+```php
+// config/easy-multitenancy.php
+'track_recent_tenants' => env('TENANT_TRACK_RECENT', true),
+
+// Returns ['acme' => 1717000000, 'contoso' => 1716990000] (newest first)
+$recent = Tenant::getRecentTenants();
+```
+
+### Queued Jobs
+
+When `queue.tenant_aware` is enabled (default), the current tenant is automatically injected into
+every queued job at dispatch and restored before the job runs — no trait required. Opt a job out of
+tenant context by implementing the `GlobalJob` interface, listing it under `queue.excluded_jobs` /
+`queue.excluded_patterns`, or setting a public `$tenantAware = false` property:
+
+```php
+use Bit16\EasyMultitenancy\Contracts\GlobalJob;
+
+class BackupAllTenants implements ShouldQueue, GlobalJob
+{
+    // Runs in the central context, without a tenant.
+}
 ```
 
 ### Route Configuration

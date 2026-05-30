@@ -2,22 +2,31 @@
 
 namespace Bit16\EasyMultitenancy;
 
+use Bit16\EasyMultitenancy\Traits\ChecksRouteExclusions;
 use Illuminate\Routing\UrlGenerator;
 use Symfony\Component\Routing\Exception\RouteNotFoundException;
 
 class TenantUrlGenerator extends UrlGenerator
 {
+    use ChecksRouteExclusions;
+
     public function to($path, $extra = [], $secure = null)
     {
         $tenant = app('tenant')->current();
 
         if ($tenant && !str_starts_with($path, 'http')) {
-            if (str_starts_with($path, '/')) {
-                if (!str_starts_with($path, '/' . $tenant)) {
-                    $path = '/' . $tenant . $path;
+            // Normalize path for checking
+            $normalizedPath = ltrim($path, '/');
+
+            // Check if this path should be excluded from tenant prefixing
+            if (!$this->shouldExcludeRoute(null, null, $normalizedPath)) {
+                if (str_starts_with($path, '/')) {
+                    if (!str_starts_with($path, '/' . $tenant)) {
+                        $path = '/' . $tenant . $path;
+                    }
+                } else {
+                    $path = $tenant . '/' . $path;
                 }
-            } else {
-                $path = $tenant . '/' . $path;
             }
         }
 
@@ -43,8 +52,9 @@ class TenantUrlGenerator extends UrlGenerator
 
             $parametersArray = is_array($parameters) ? $parameters : [$parameters];
 
+            // Only add tenant parameter if route has {tenant} and is not excluded
             if (!isset($parametersArray['tenant']) && str_contains($route->uri(), '{tenant}')) {
-                if ($tenant) {
+                if ($tenant && !$this->shouldExcludeRoute($route, $name, $route->uri())) {
                     $parametersArray = array_merge(['tenant' => $tenant], $parametersArray);
                 }
             }

@@ -10,14 +10,22 @@ use Bit16\EasyMultitenancy\Commands\SeedAllTenantsCommand;
 use Bit16\EasyMultitenancy\Commands\SeedTenantCommand;
 use Bit16\EasyMultitenancy\Managers\TenantManager;
 use Bit16\EasyMultitenancy\Middleware\IdentifyTenant;
+use Bit16\EasyMultitenancy\Middleware\TrackRecentTenant;
+use Bit16\EasyMultitenancy\Queue\QueueTenantInjector;
+use Bit16\EasyMultitenancy\Traits\ChecksRouteExclusions;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobProcessed;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
 class EasyMultitenancyServiceProvider extends PackageServiceProvider
 {
+    use ChecksRouteExclusions;
     public function configurePackage(Package $package): void
     {
         $package
@@ -40,6 +48,8 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
         });
 
         $this->app->alias('tenant', TenantManager::class);
+
+        $this->app->singleton(QueueTenantInjector::class);
 
         $this->app->singleton('url', function ($app) {
             $routes = $app['router']->getRoutes();
@@ -70,6 +80,9 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
 
     public function bootingPackage(): void
     {
+        $this->registerCentralConnection();
+        $this->registerOctaneResetListeners();
+
         $this->app->booted(function () {
             $router = $this->app->make(Router::class);
             $router->aliasMiddleware('tenant', IdentifyTenant::class);
@@ -80,6 +93,96 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
 
         if (config('easy-multitenancy.routes.auto_prefix', true)) {
             $this->autoPrefixRoutes();
+        }
+
+        if (config('easy-multitenancy.queue.tenant_aware', true)) {
+            $this->registerQueueTenantInjection();
+        }
+    }
+
+    /**
+     * Inject the current tenant into queued jobs at dispatch and restore it
+     * before each job runs, cleaning up afterwards. Jobs can opt out via the
+     * GlobalJob interface, config exclusions or a `tenantAware = false` property.
+     */
+    protected function registerQueueTenantInjection(): void
+    {
+        $injector = $this->app->make(QueueTenantInjector::class);
+
+        Queue::createPayloadUsing(function ($connection, $queue, $payload) use ($injector) {
+            return $injector->shouldInjectTenant($payload)
+                ? $injector->injectTenant($payload)
+                : $payload;
+        });
+
+        Event::listen(JobProcessing::class, function ($event) use ($injector) {
+            $payload = $event->job->payload();
+
+            if ($injector->shouldRestoreTenant($payload)) {
+                $injector->restoreTenant($payload);
+            }
+        });
+
+        Event::listen(JobProcessed::class, function ($event) use ($injector) {
+            if (isset($event->job->payload()['tenant_id'])) {
+                $injector->cleanupTenant();
+            }
+        });
+
+        Event::listen(JobFailed::class, function () use ($injector) {
+            $injector->cleanupTenant();
+        });
+    }
+
+    /**
+     * Reset the tenant context between requests/tasks on long-running workers
+     * (Octane). The application instance is reused there, so tenant state and
+     * the mutated configuration must be flushed at each lifecycle boundary to
+     * avoid leaking across tenants. Listeners are keyed by the Octane event
+     * class names as strings, so they are harmless no-ops when Octane is absent.
+     */
+    protected function registerOctaneResetListeners(): void
+    {
+        // Referenced as strings so PHPStan/autoloading don't require Octane.
+        $events = [
+            'Laravel\Octane\Events\RequestReceived',
+            'Laravel\Octane\Events\RequestTerminated',
+            'Laravel\Octane\Events\TaskReceived',
+            'Laravel\Octane\Events\TickReceived',
+        ];
+
+        foreach ($events as $event) {
+            $this->app['events']->listen($event, function () {
+                if ($this->app->resolved('tenant')) {
+                    $this->app->make('tenant')->forget();
+                }
+            });
+        }
+    }
+
+    /**
+     * Register a stable "central" connection that always points at the
+     * landlord database (the default connection as configured at boot),
+     * so it stays reachable even while a tenant connection is active.
+     */
+    protected function registerCentralConnection(): void
+    {
+        if (! config('easy-multitenancy.central.enabled', false)) {
+            return;
+        }
+
+        $central = config('easy-multitenancy.central.connection', 'central');
+
+        // Respect an explicitly user-defined central connection.
+        if (config("database.connections.{$central}") !== null) {
+            return;
+        }
+
+        $default = config('database.default');
+        $defaultConfig = config("database.connections.{$default}");
+
+        if (is_array($defaultConfig)) {
+            config()->set("database.connections.{$central}", $defaultConfig);
         }
     }
 
@@ -95,7 +198,18 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             foreach ($router->getRoutes()->getRoutes() as $route) {
                 $routeKey = spl_object_id($route);
 
-                if (!in_array($routeKey, $prefixed) && $this->shouldPrefixRoute($route, $excludedRoutes, $excludedPatterns)) {
+                if (in_array($routeKey, $prefixed)) {
+                    continue;
+                }
+
+                // Central routes: strip the marker prefix and skip tenant prefixing.
+                if ($this->processCentralRoute($route)) {
+                    $prefixed[] = $routeKey;
+
+                    continue;
+                }
+
+                if ($this->shouldPrefixRoute($route, $excludedRoutes, $excludedPatterns)) {
                     $this->prefixRoute($route);
                     $prefixed[] = $routeKey;
                 }
@@ -112,7 +226,18 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             foreach ($routes as $route) {
                 $routeKey = spl_object_id($route);
 
-                if (!in_array($routeKey, $prefixed) && $this->shouldPrefixRoute($route, $excludedRoutes, $excludedPatterns)) {
+                if (in_array($routeKey, $prefixed)) {
+                    continue;
+                }
+
+                // Central routes: strip the marker prefix and skip tenant prefixing.
+                if ($this->processCentralRoute($route)) {
+                    $prefixed[] = $routeKey;
+
+                    continue;
+                }
+
+                if ($this->shouldPrefixRoute($route, $excludedRoutes, $excludedPatterns)) {
                     $this->prefixRoute($route);
                     $prefixed[] = $routeKey;
                 }
@@ -125,25 +250,36 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
 
     protected function shouldPrefixRoute(Route $route, array $excludedRoutes, array $excludedPatterns): bool
     {
+        // Central routes are never tenant-prefixed.
+        if ($route->getAction('central') === true) {
+            return false;
+        }
+
         $name = $route->getName();
         $uri = $route->uri();
 
-        if (str_starts_with($uri, '{tenant}/')) {
+        // Use the shared exclusion logic from trait (inverted logic)
+        return !$this->isRouteExcluded($route, $name, $uri, $excludedRoutes, $excludedPatterns);
+    }
+
+    /**
+     * Detect a route registered via Tenant::centralRoutes(): strip the marker
+     * prefix and flag it as central so it is never tenant-prefixed.
+     */
+    protected function processCentralRoute(Route $route): bool
+    {
+        $uri = $route->uri();
+
+        if ($uri !== '__central-route__' && !str_starts_with($uri, '__central-route__/')) {
             return false;
         }
 
-        if ($name && in_array($name, $excludedRoutes)) {
-            return false;
-        }
+        $cleanUri = $uri === '__central-route__' ? '/' : substr($uri, strlen('__central-route__/'));
+        $route->setUri($cleanUri === '' ? '/' : $cleanUri);
 
-        foreach ($excludedPatterns as $pattern) {
-            if ($name && Str::is($pattern, $name)) {
-                return false;
-            }
-            if (Str::is($pattern, $uri)) {
-                return false;
-            }
-        }
+        $action = $route->getAction();
+        $action['central'] = true;
+        $route->setAction($action);
 
         return true;
     }
@@ -170,6 +306,11 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
 
         if (!in_array('tenant', $action['middleware'])) {
             $action['middleware'][] = 'tenant';
+        }
+
+        // Track the visited tenant (self-guards on the config flag).
+        if (!in_array(TrackRecentTenant::class, $action['middleware'])) {
+            $action['middleware'][] = TrackRecentTenant::class;
         }
 
         $route->setAction($action);
