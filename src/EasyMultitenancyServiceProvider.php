@@ -122,15 +122,14 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
     protected function prioritizeTenantMiddleware(): void
     {
         $this->app->booted(function () {
+            // Resolve the application's HTTP kernel singleton. Every standard
+            // Laravel kernel extends the foundation kernel, which exposes the
+            // middleware-priority API used below.
             $kernel = $this->app->make(HttpKernel::class);
-
-            if (! method_exists($kernel, 'addToMiddlewarePriorityBefore')) {
-                return;
-            }
 
             // The framework lists the auth middleware in the priority array by
             // its contract, with the concrete class kept as a fallback for
-            // versions/apps that reference it directly.
+            // apps that reference it directly.
             $kernel->addToMiddlewarePriorityBefore(
                 [AuthenticatesRequests::class, Authenticate::class],
                 IdentifyTenant::class,
