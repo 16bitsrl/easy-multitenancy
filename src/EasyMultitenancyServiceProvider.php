@@ -8,6 +8,7 @@ use Bit16\EasyMultitenancy\Commands\MigrateAllTenantsCommand;
 use Bit16\EasyMultitenancy\Commands\MigrateTenantCommand;
 use Bit16\EasyMultitenancy\Commands\SeedAllTenantsCommand;
 use Bit16\EasyMultitenancy\Commands\SeedTenantCommand;
+use Bit16\EasyMultitenancy\Http\Controllers\CentralHomeController;
 use Bit16\EasyMultitenancy\Managers\TenantManager;
 use Bit16\EasyMultitenancy\Middleware\IdentifyTenant;
 use Bit16\EasyMultitenancy\Middleware\TrackRecentTenant;
@@ -31,6 +32,7 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
         $package
             ->name('easy-multitenancy')
             ->hasConfigFile()
+            ->hasViews()
             ->hasCommands([
                 ListTenantsCommand::class,
                 CreateTenantCommand::class,
@@ -95,9 +97,50 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             $this->autoPrefixRoutes();
         }
 
+        $this->registerDefaultCentralHome();
+
         if (config('easy-multitenancy.queue.tenant_aware', true)) {
             $this->registerQueueTenantInjection();
         }
+    }
+
+    /**
+     * Register a default central home at "/" when enabled and the host app has
+     * not already defined a root route. Runs after auto-prefixing so it can
+     * detect an app-defined central "/" and step aside.
+     */
+    protected function registerDefaultCentralHome(): void
+    {
+        if (! config('easy-multitenancy.central.default_home', true)) {
+            return;
+        }
+
+        $this->app->booted(function () {
+            $router = $this->app->make(Router::class);
+            $routes = $router->getRoutes();
+
+            foreach ($routes->getRoutes() as $route) {
+                if (ltrim($route->uri(), '/') === '') {
+                    return; // a root route already exists — don't override it
+                }
+            }
+
+            // Reuse the central-routes marker so the routes land on their own
+            // collection slot (auto-prefixed app roots keep their "/" slot, so
+            // adding "/" directly would evict them), then strip the marker.
+            $added = [];
+            $this->app->make('tenant')->centralRoutes(function () use ($router, &$added) {
+                $added[] = $router->get('/', [CentralHomeController::class, 'show'])->middleware('web');
+                $added[] = $router->post('/', [CentralHomeController::class, 'submit'])->middleware('web');
+            });
+
+            foreach ($added as $route) {
+                $this->processCentralRoute($route);
+            }
+
+            $routes->refreshNameLookups();
+            $routes->refreshActionLookups();
+        });
     }
 
     /**

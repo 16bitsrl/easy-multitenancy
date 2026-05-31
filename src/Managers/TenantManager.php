@@ -247,6 +247,14 @@ class TenantManager
         return $database ? file_exists($database) : false;
     }
 
+    /**
+     * Whether a name is a well-formed tenant identifier (does not check existence).
+     */
+    public function isValid(string $name): bool
+    {
+        return (bool) preg_match('/^[a-z0-9\-]+$/', trim($name));
+    }
+
     public function getDatabasePath(string $tenant): ?string
     {
         try {

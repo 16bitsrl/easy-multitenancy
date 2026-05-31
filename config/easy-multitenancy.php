@@ -18,6 +18,10 @@ return [
     'central' => [
         'enabled' => env('TENANT_CENTRAL_ENABLED', false),
         'connection' => env('TENANT_CENTRAL_CONNECTION', 'central'),
+
+        // Serve a default central home (tenant picker) at "/" when the app
+        // has not defined its own root route. Publish the view to customize it.
+        'default_home' => env('TENANT_CENTRAL_DEFAULT_HOME', true),
     ],
 
     'cache' => [

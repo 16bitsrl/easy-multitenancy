@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static string|null id()
  * @method static string|null database()
  * @method static bool exists(string $tenant)
+ * @method static bool isValid(string $name)
  * @method static string sanitize(string $name)
  * @method static string|null getDatabasePath(string $tenant)
  * @method static array all()

@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.0 - 2026-05-31
+
+### Added
+- Default central home: a tenant-picker landing page served at `/` when the host app has no root route of its own. Opt out via `central.default_home`, or publish the view (`easy-multitenancy-views`) to customize it.
+- The picker validates the submitted identifier (POST) and shows a "Tenant non trovato" message, redirecting to the tenant on success (case-insensitive); the app's own central `/` always takes precedence.
+- `Tenant::isValid()` to check whether a name is a well-formed tenant identifier.
+
 ## v0.2.0 - 2026-05-30
 
 ### Added
