@@ -93,6 +93,9 @@ return [
             'api/*',
             '_debugbar/*',
             '_boost/*',
+            // Livewire's testing harness registers a temporary route here for
+            // the initial render; prefixing it would break component tests.
+            'livewire-unit-test-endpoint/*',
             '*.js',
             '*.css',
             '*.map',
