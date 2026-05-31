@@ -38,8 +38,14 @@ class MigrateAllTenantsCommand extends Command
                 $options['--seed'] = true;
             }
 
-            Artisan::call('tenant:migrate', $options);
+            $exitCode = Artisan::call('tenant:migrate', $options);
             $this->line(Artisan::output());
+
+            if ($exitCode !== self::SUCCESS) {
+                $this->error("Migration failed for tenant '{$tenant}'.");
+
+                return self::FAILURE;
+            }
         }
 
         $this->info('All tenants migrated successfully!');

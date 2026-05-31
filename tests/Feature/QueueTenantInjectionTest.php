@@ -17,7 +17,10 @@ function payloadFor(object $command): array
 {
     return [
         'displayName' => get_class($command),
-        'data' => ['command' => serialize($command)],
+        'data' => [
+            'commandName' => get_class($command),
+            'command' => serialize($command),
+        ],
     ];
 }
 
@@ -55,6 +58,23 @@ it('does not inject jobs excluded by class name', function () {
     Tenant::identify('acme');
 
     expect($this->injector->shouldInjectTenant(payloadFor(new SampleTenantJob())))->toBeFalse();
+});
+
+it('uses job metadata for class exclusions before unserializing commands', function () {
+    config()->set('easy-multitenancy.queue.excluded_jobs', [SampleTenantJob::class]);
+
+    $this->createTenant('acme');
+    Tenant::identify('acme');
+
+    $payload = [
+        'displayName' => SampleTenantJob::class,
+        'data' => [
+            'commandName' => SampleTenantJob::class,
+            'command' => 'not-a-serialized-command',
+        ],
+    ];
+
+    expect($this->injector->shouldInjectTenant($payload))->toBeFalse();
 });
 
 it('restores and cleans up the tenant context for a job', function () {

@@ -24,32 +24,26 @@ class QueueTenantInjector
             return false;
         }
 
-        if (! isset($payload['data']['command'])) {
+        $jobClass = $this->payloadJobClass($payload);
+
+        if ($jobClass && $this->isJobClassExcluded($jobClass)) {
             return false;
         }
 
-        try {
-            $command = unserialize($payload['data']['command']);
-        } catch (\Throwable $e) {
-            Log::warning('Failed to unserialize job command for tenant injection', [
-                'error' => $e->getMessage(),
-            ]);
-
+        if (! isset($payload['data']['command']) || ! is_string($payload['data']['command'])) {
             return false;
         }
 
-        $jobClass = get_class($command);
+        $command = $this->unserializeCommand($payload['data']['command']);
 
-        // Exact class exclusion
-        if (in_array($jobClass, config('easy-multitenancy.queue.excluded_jobs', []))) {
+        if (! $command) {
             return false;
         }
 
-        // Pattern-based exclusion
-        foreach (config('easy-multitenancy.queue.excluded_patterns', []) as $pattern) {
-            if (Str::is($pattern, $jobClass)) {
-                return false;
-            }
+        $jobClass ??= get_class($command);
+
+        if ($this->isJobClassExcluded($jobClass)) {
+            return false;
         }
 
         // Interface-based exclusion
@@ -64,6 +58,46 @@ class QueueTenantInjector
         }
 
         return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    protected function payloadJobClass(array $payload): ?string
+    {
+        $jobClass = $payload['data']['commandName'] ?? $payload['displayName'] ?? null;
+
+        return is_string($jobClass) && $jobClass !== '' ? $jobClass : null;
+    }
+
+    protected function isJobClassExcluded(string $jobClass): bool
+    {
+        if (in_array($jobClass, config('easy-multitenancy.queue.excluded_jobs', []), true)) {
+            return true;
+        }
+
+        foreach (config('easy-multitenancy.queue.excluded_patterns', []) as $pattern) {
+            if (is_string($pattern) && Str::is($pattern, $jobClass)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function unserializeCommand(string $command): ?object
+    {
+        try {
+            $unserialized = unserialize($command);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to unserialize job command for tenant injection', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        return is_object($unserialized) ? $unserialized : null;
     }
 
     /**

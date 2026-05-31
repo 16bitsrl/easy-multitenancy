@@ -24,7 +24,7 @@ class CentralHomeController
             ->values()
             ->all();
 
-        return view('easy-multitenancy::central-home', [
+        return view()->make('easy-multitenancy::central-home', [
             'appName' => config('app.name', 'Laravel'),
             'recentTenants' => $recentTenants,
             'error' => session('error'),

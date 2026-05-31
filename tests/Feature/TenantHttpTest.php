@@ -23,13 +23,14 @@ it('keeps excluded routes unprefixed and without a tenant', function () {
 });
 
 it('dispatches TenantIdentified when resolving a tenant route', function () {
-    Event::fake([TenantIdentified::class]);
-
     $this->createTenant('acme');
+
+    Event::fake([TenantIdentified::class]);
 
     $this->get('/acme/dashboard')->assertOk();
 
     Event::assertDispatched(TenantIdentified::class, fn ($event) => $event->tenant === 'acme');
+    Event::assertDispatchedTimes(TenantIdentified::class, 1);
 });
 
 it('isolates two tenants across separate requests', function () {
@@ -37,9 +38,8 @@ it('isolates two tenants across separate requests', function () {
     $this->createTenant('contoso');
 
     $this->get('/acme/dashboard')->assertSee('tenant:acme');
-
-    // Simulate a separate request lifecycle (a fresh app would reset this).
-    Tenant::forget();
+    expect(Tenant::current())->toBeNull();
 
     $this->get('/contoso/dashboard')->assertSee('tenant:contoso');
+    expect(Tenant::current())->toBeNull();
 });

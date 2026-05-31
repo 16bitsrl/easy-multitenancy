@@ -88,9 +88,6 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
         $this->app->booted(function () {
             $router = $this->app->make(Router::class);
             $router->aliasMiddleware('tenant', IdentifyTenant::class);
-
-            // Add IdentifyTenant BEFORE auth middleware by prepending to web group
-            $router->prependMiddlewareToGroup('web', IdentifyTenant::class);
         });
 
         if (config('easy-multitenancy.routes.auto_prefix', true)) {
@@ -347,12 +344,15 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             $action['middleware'] = [$action['middleware']];
         }
 
-        if (!in_array('tenant', $action['middleware'])) {
-            $action['middleware'][] = 'tenant';
+        if (! in_array('tenant', $action['middleware'], true)) {
+            $webMiddlewareIndex = array_search('web', $action['middleware'], true);
+            $tenantMiddlewareIndex = $webMiddlewareIndex === false ? 0 : $webMiddlewareIndex + 1;
+
+            array_splice($action['middleware'], $tenantMiddlewareIndex, 0, 'tenant');
         }
 
         // Track the visited tenant (self-guards on the config flag).
-        if (!in_array(TrackRecentTenant::class, $action['middleware'])) {
+        if (! in_array(TrackRecentTenant::class, $action['middleware'], true)) {
             $action['middleware'][] = TrackRecentTenant::class;
         }
 

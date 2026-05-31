@@ -19,14 +19,19 @@ class IdentifyTenant
             return $next($request);
         }
 
+        $identified = false;
+
         try {
             Tenant::identify($tenant);
+            $identified = true;
 
-            app('url')->defaults(['tenant' => $tenant]);
+            return $next($request);
         } catch (TenantNotFoundException $e) {
             abort(404, $e->getMessage());
+        } finally {
+            if ($identified) {
+                Tenant::forget();
+            }
         }
-
-        return $next($request);
     }
 }

@@ -32,7 +32,13 @@ class CreateTenantCommand extends Command
             }
         );
 
-        $name = Tenant::sanitize($name);
+        $name = strtolower(trim((string) $name));
+
+        if (! Tenant::isValid($name)) {
+            $this->error('The tenant name must contain only lowercase letters, numbers, and hyphens.');
+
+            return self::FAILURE;
+        }
 
         if (Tenant::exists($name)) {
             $this->error("Tenant '{$name}' already exists.");
@@ -77,8 +83,12 @@ class CreateTenantCommand extends Command
             $this->info("Created database: {$database}");
 
             $this->info("Running migrations for tenant '{$name}'...");
-            Artisan::call('tenant:migrate', ['tenant' => $name]);
+            $exitCode = Artisan::call('tenant:migrate', ['tenant' => $name]);
             $this->line(Artisan::output());
+
+            if ($exitCode !== self::SUCCESS) {
+                throw new \RuntimeException("Migrations failed for tenant '{$name}'.");
+            }
 
             $this->runConfiguredSeeders($name);
 
@@ -165,26 +175,30 @@ class CreateTenantCommand extends Command
 
         Tenant::identify($tenant);
 
-        foreach ($seeders as $seederClass) {
-            if (!class_exists($seederClass)) {
-                $this->warn("Seeder class not found: {$seederClass}");
+        try {
+            foreach ($seeders as $seederClass) {
+                if (! class_exists($seederClass)) {
+                    $this->warn("Seeder class not found: {$seederClass}");
 
-                continue;
-            }
+                    continue;
+                }
 
-            $this->line('  - ' . class_basename($seederClass));
+                $this->line('  - '.class_basename($seederClass));
 
-            try {
-                Artisan::call('db:seed', [
+                $exitCode = Artisan::call('db:seed', [
                     '--class' => $seederClass,
                     '--force' => true,
                 ]);
-            } catch (\Exception $e) {
-                $this->error('  Failed: ' . $e->getMessage());
-            }
-        }
 
-        Tenant::forget();
+                $this->line(Artisan::output());
+
+                if ($exitCode !== self::SUCCESS) {
+                    throw new \RuntimeException("Seeder {$seederClass} failed.");
+                }
+            }
+        } finally {
+            Tenant::forget();
+        }
     }
 
     protected function getUserModelClass(): ?string

@@ -25,8 +25,6 @@ class SeedAllTenantsCommand extends Command
         $this->info('Seeding all tenants...');
 
         foreach ($tenants as $tenant) {
-            Tenant::identify($tenant);
-
             $this->line("Seeding: {$tenant}");
 
             $options = ['--force' => true];
@@ -35,9 +33,20 @@ class SeedAllTenantsCommand extends Command
                 $options['--class'] = $class;
             }
 
-            Artisan::call('db:seed', $options);
+            Tenant::identify($tenant);
 
-            Tenant::forget();
+            try {
+                $exitCode = Artisan::call('db:seed', $options);
+                $this->line(Artisan::output());
+
+                if ($exitCode !== self::SUCCESS) {
+                    $this->error("Seeding failed for tenant '{$tenant}'.");
+
+                    return self::FAILURE;
+                }
+            } finally {
+                Tenant::forget();
+            }
         }
 
         $this->info('All tenants seeded successfully.');

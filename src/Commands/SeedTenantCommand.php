@@ -23,15 +23,25 @@ class SeedTenantCommand extends Command
 
         Tenant::identify($tenant);
 
-        $this->info("Seeding tenant: {$tenant}");
+        try {
+            $this->info("Seeding tenant: {$tenant}");
 
-        $options = ['--force' => true];
+            $options = ['--force' => true];
 
-        if ($class = $this->option('class')) {
-            $options['--class'] = $class;
+            if ($class = $this->option('class')) {
+                $options['--class'] = $class;
+            }
+
+            $exitCode = $this->call('db:seed', $options);
+
+            if ($exitCode !== self::SUCCESS) {
+                $this->error("Seeding failed for tenant '{$tenant}'.");
+
+                return self::FAILURE;
+            }
+        } finally {
+            Tenant::forget();
         }
-
-        $this->call('db:seed', $options);
 
         $this->info("Tenant '{$tenant}' seeded successfully.");
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.1 - 2026-05-31
+
+### Fixed
+- Fixed PHPStan on fresh installs by avoiding Larastan's strict `view-string` helper check in the default central home controller.
+- Removed duplicate tenant identification on auto-prefixed web routes and clear the tenant context after each HTTP request.
+- Ensure tenant migrate/seed commands clean up tenant context and fail when underlying Artisan commands fail.
+- Avoid unserializing queued jobs when payload class metadata is enough to apply configured class or pattern exclusions.
+- Reject invalid `tenant:create` identifiers instead of silently stripping characters.
+
+### Changed
+- Run tests and PHPStan on pull requests, and update GitHub metadata links to the current repository.
+
 ## v0.3.0 - 2026-05-31
 
 ### Added

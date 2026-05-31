@@ -24,32 +24,41 @@ class MigrateTenantCommand extends Command
 
         Tenant::identify($name);
 
-        $this->info("Running migrations for tenant '{$name}'...");
+        try {
+            $this->info("Running migrations for tenant '{$name}'...");
 
-        if ($this->option('fresh')) {
-            Artisan::call('migrate:fresh', [
+            $exitCode = Artisan::call($this->option('fresh') ? 'migrate:fresh' : 'migrate', [
                 '--database' => config('easy-multitenancy.database.connection', 'tenant'),
                 '--force' => true,
             ]);
-        } else {
-            Artisan::call('migrate', [
-                '--database' => config('easy-multitenancy.database.connection', 'tenant'),
-                '--force' => true,
-            ]);
-        }
 
-        $this->line(Artisan::output());
-
-        if ($this->option('seed')) {
-            $this->info("Seeding database for tenant '{$name}'...");
-            Artisan::call('db:seed', [
-                '--database' => config('easy-multitenancy.database.connection', 'tenant'),
-                '--force' => true,
-            ]);
             $this->line(Artisan::output());
-        }
 
-        Tenant::forget();
+            if ($exitCode !== self::SUCCESS) {
+                $this->error("Migration failed for tenant '{$name}'.");
+
+                return self::FAILURE;
+            }
+
+            if ($this->option('seed')) {
+                $this->info("Seeding database for tenant '{$name}'...");
+
+                $exitCode = Artisan::call('db:seed', [
+                    '--database' => config('easy-multitenancy.database.connection', 'tenant'),
+                    '--force' => true,
+                ]);
+
+                $this->line(Artisan::output());
+
+                if ($exitCode !== self::SUCCESS) {
+                    $this->error("Seeding failed for tenant '{$name}'.");
+
+                    return self::FAILURE;
+                }
+            }
+        } finally {
+            Tenant::forget();
+        }
 
         $this->info("Migration completed for tenant '{$name}'!");
 
