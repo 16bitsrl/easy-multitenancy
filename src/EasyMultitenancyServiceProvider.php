@@ -14,10 +14,14 @@ use Bit16\EasyMultitenancy\Middleware\IdentifyTenant;
 use Bit16\EasyMultitenancy\Middleware\TrackRecentTenant;
 use Bit16\EasyMultitenancy\Queue\QueueTenantInjector;
 use Bit16\EasyMultitenancy\Traits\ChecksRouteExclusions;
+use Illuminate\Auth\Middleware\Authenticate;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Routing\Route;
+use Illuminate\Routing\RouteCollection;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -90,15 +94,80 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             $router->aliasMiddleware('tenant', IdentifyTenant::class);
         });
 
+        $this->prioritizeTenantMiddleware();
+
         if (config('easy-multitenancy.routes.auto_prefix', true)) {
             $this->autoPrefixRoutes();
         }
 
         $this->registerDefaultCentralHome();
 
+        $this->reindexRoutesAfterRewrite();
+
         if (config('easy-multitenancy.queue.tenant_aware', true)) {
             $this->registerQueueTenantInjection();
         }
+    }
+
+    /**
+     * Ensure tenant identification runs before Laravel's Authenticate middleware.
+     *
+     * Route middleware is executed in the order of a global priority list.
+     * Authenticate is on that list while the tenant middleware is not, so the
+     * auth check can otherwise run first. For a guest hitting a protected tenant
+     * route that means the "{tenant}/login" redirect URL is generated before the
+     * tenant has been identified, throwing a missing-parameter error instead of
+     * redirecting to the tenant login page.
+     */
+    protected function prioritizeTenantMiddleware(): void
+    {
+        $this->app->booted(function () {
+            $kernel = $this->app->make(HttpKernel::class);
+
+            if (! method_exists($kernel, 'addToMiddlewarePriorityBefore')) {
+                return;
+            }
+
+            // The framework lists the auth middleware in the priority array by
+            // its contract, with the concrete class kept as a fallback for
+            // versions/apps that reference it directly.
+            $kernel->addToMiddlewarePriorityBefore(
+                [AuthenticatesRequests::class, Authenticate::class],
+                IdentifyTenant::class,
+            );
+        });
+    }
+
+    /**
+     * Rebuild the route collection once all URI rewriting (tenant prefixing and
+     * central-home registration) has happened, so every route is re-indexed
+     * under its current URI.
+     *
+     * Prefixing mutates a route's URI in place (e.g. "/" becomes "{tenant}")
+     * but the collection keeps indexing it under its original key. When the
+     * collection is later compiled for the route cache, generating the missing
+     * names re-adds the central "/" route onto the stale "/" slot and evicts the
+     * prefixed root route, dropping it from the cache. Re-adding every route to
+     * a fresh collection recomputes the keys and prevents the collision.
+     */
+    protected function reindexRoutesAfterRewrite(): void
+    {
+        // Cached routes are already correctly indexed in the cache file.
+        if ($this->app->routesAreCached()) {
+            return;
+        }
+
+        $this->app->booted(function () {
+            $router = $this->app->make(Router::class);
+
+            $rebuilt = new RouteCollection();
+
+            foreach ($router->getRoutes()->getRoutes() as $route) {
+                $rebuilt->add($route);
+            }
+
+            $router->setRoutes($rebuilt);
+        });
     }
 
     /**
@@ -109,6 +178,12 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
     protected function registerDefaultCentralHome(): void
     {
         if (! config('easy-multitenancy.central.default_home', true)) {
+            return;
+        }
+
+        // When routes are cached the central home is already baked into the
+        // cache; re-registering it at runtime would duplicate the route.
+        if ($this->app->routesAreCached()) {
             return;
         }
 
@@ -228,6 +303,13 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
 
     protected function autoPrefixRoutes(): void
     {
+        // When routes are cached the prefixing is already baked into the cache
+        // file (it ran while the cache was being built). Re-running it at
+        // runtime would double-prefix routes loaded from the cache.
+        if ($this->app->routesAreCached()) {
+            return;
+        }
+
         $prefixed = [];
 
         $this->app->booted(function () use (&$prefixed) {
@@ -319,6 +401,10 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
 
         $action = $route->getAction();
         $action['central'] = true;
+        // Drop the marker prefix from the action: the URI has already been
+        // cleaned above, and a lingering 'prefix' is re-applied to the URI when
+        // the route is rebuilt from the route cache, resurfacing the marker.
+        unset($action['prefix']);
         $route->setAction($action);
 
         return true;

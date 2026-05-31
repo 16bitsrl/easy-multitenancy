@@ -56,6 +56,8 @@ class TestCase extends Orchestra
         $router->middleware('web')->group(function (Router $router) {
             $router->get('dashboard', fn () => 'tenant:'.(Tenant::current() ?? 'none'))->name('dashboard');
             $router->get('home', fn () => 'central:'.(Tenant::current() ?? 'none'))->name('home');
+            $router->get('login', fn () => 'login')->name('login');
+            $router->get('account', fn () => 'account')->middleware('auth')->name('account');
         });
 
         Tenant::centralRoutes(function (Router $router) {

@@ -92,6 +92,7 @@ return [
             'telescope*',
             'api/*',
             '_debugbar/*',
+            '_boost/*',
             '*.js',
             '*.css',
             '*.map',
