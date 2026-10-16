@@ -17,13 +17,15 @@ trait ChecksRouteExclusions
 
     protected function isRouteExcluded(?Route $route, ?string $name, ?string $uri, array $excludedRoutes, array $excludedPatterns): bool
     {
+        $placeholder = '{'.config('easy-multitenancy.routes.parameter', 'tenant').'}/';
+
         // If route already has tenant prefix, don't exclude it
-        if ($route && str_starts_with($route->uri(), '{tenant}/')) {
+        if ($route && str_starts_with($route->uri(), $placeholder)) {
             return false;
         }
 
         // If URI already has tenant prefix, don't exclude it
-        if ($uri && str_starts_with(ltrim($uri, '/'), '{tenant}/')) {
+        if ($uri && str_starts_with(ltrim($uri, '/'), $placeholder)) {
             return false;
         }
 

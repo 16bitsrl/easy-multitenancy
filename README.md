@@ -161,6 +161,11 @@ php artisan tenant:seed-all
 
 The package automatically identifies tenants from the URL and switches the database context. All routes are automatically prefixed with `{tenant}` parameter.
 
+The tenant is identified before the session starts, so every tenant gets its own session cookie and
+route model bindings resolve against the tenant database. The tenant parameter is removed from the
+route parameters once identified: controllers and closures receive only their own parameters
+(`function (Post $post)` on `{tenant}/posts/{post}`). Use `Tenant::current()` to read the tenant.
+
 ```php
 use Bit16\EasyMultitenancy\Facades\Tenant;
 
@@ -295,6 +300,17 @@ class BackupAllTenants implements ShouldQueue, GlobalJob
 }
 ```
 
+Exclusions also apply to queued mailables, notifications, listeners and broadcast events (match the
+mailable/notification/listener class). Jobs without a tenant always run in the central context, and
+the previous context is restored after each attempt, so a worker never carries a tenant over to the
+next job and a sync job never changes the tenant of the request that dispatched it.
+
+With `queue.strict_mode` enabled (default), a job whose tenant no longer exists is marked as failed
+without running. With strict mode off, it runs in the central context.
+
+Queues using the `database` driver always store jobs on the central connection, even when dispatched
+from a tenant.
+
 ### Route Configuration
 
 By default, all routes are automatically prefixed with the tenant parameter. You can exclude specific routes:
@@ -334,7 +350,13 @@ route('dashboard'); // Automatically includes tenant parameter
 
 // Generate URL for a specific tenant
 route('dashboard', ['tenant' => 'acme']);
+
+// Central routes (Tenant::centralRoutes()) are never prefixed
+route('pricing'); // /pricing
+url('/pricing'); // /pricing
 ```
+
+Inside a tenant, `url('/')` points at the tenant home; use `route()` to link the central home.
 
 ## Testing
 

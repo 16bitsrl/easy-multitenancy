@@ -3,30 +3,32 @@
 namespace Bit16\EasyMultitenancy;
 
 use Bit16\EasyMultitenancy\Traits\ChecksRouteExclusions;
+use Illuminate\Routing\RouteCollectionInterface;
 use Illuminate\Routing\UrlGenerator;
-use Symfony\Component\Routing\Exception\RouteNotFoundException;
 
 class TenantUrlGenerator extends UrlGenerator
 {
     use ChecksRouteExclusions;
 
+    /**
+     * Path patterns of central routes, built lazily from the route collection.
+     *
+     * @var array<int, string>|null
+     */
+    protected ?array $centralPathPatterns = null;
+
     public function to($path, $extra = [], $secure = null)
     {
         $tenant = app('tenant')->current();
 
-        if ($tenant && !str_starts_with($path, 'http')) {
-            // Normalize path for checking
+        if ($tenant && ! $this->isValidUrl($path)) {
             $normalizedPath = ltrim($path, '/');
+            $firstSegment = explode('/', $normalizedPath)[0];
 
-            // Check if this path should be excluded from tenant prefixing
-            if (!$this->shouldExcludeRoute(null, null, $normalizedPath)) {
-                if (str_starts_with($path, '/')) {
-                    if (!str_starts_with($path, '/' . $tenant)) {
-                        $path = '/' . $tenant . $path;
-                    }
-                } else {
-                    $path = $tenant . '/' . $path;
-                }
+            if ($firstSegment !== $tenant
+                && ! $this->shouldExcludeRoute(null, null, $normalizedPath)
+                && ! $this->isCentralPath($normalizedPath)) {
+                $path = '/'.$tenant.'/'.$normalizedPath;
             }
         }
 
@@ -37,9 +39,11 @@ class TenantUrlGenerator extends UrlGenerator
     {
         $defaults = parent::getDefaultParameters();
 
+        $parameter = $this->tenantParameter();
         $tenant = app('tenant')->current();
-        if ($tenant && !isset($defaults['tenant'])) {
-            $defaults['tenant'] = $tenant;
+
+        if ($tenant && ! isset($defaults[$parameter])) {
+            $defaults[$parameter] = $tenant;
         }
 
         return $defaults;
@@ -47,9 +51,14 @@ class TenantUrlGenerator extends UrlGenerator
 
     public function toRoute($route, $parameters, $absolute)
     {
+        // Central routes are never tenant-scoped.
+        if ($route->getAction('central') === true) {
+            return parent::toRoute($route, $parameters, $absolute);
+        }
+
         $parameters = is_array($parameters) ? $parameters : [$parameters];
 
-        $parameter = config('easy-multitenancy.routes.parameter', 'tenant');
+        $parameter = $this->tenantParameter();
         $tenant = $this->resolveTenant($parameter);
         $routeIsTenantScoped = str_contains($route->uri(), '{'.$parameter.'}');
         $excluded = $this->shouldExcludeRoute($route, $route->getName(), $route->uri());
@@ -70,6 +79,51 @@ class TenantUrlGenerator extends UrlGenerator
         }
 
         return $url;
+    }
+
+    public function setRoutes(RouteCollectionInterface $routes)
+    {
+        $this->centralPathPatterns = null;
+
+        return parent::setRoutes($routes);
+    }
+
+    protected function tenantParameter(): string
+    {
+        return config('easy-multitenancy.routes.parameter', 'tenant');
+    }
+
+    /**
+     * Whether a path points at a route registered via Tenant::centralRoutes().
+     * The root path is left out: inside a tenant, url('/') is the tenant home.
+     */
+    protected function isCentralPath(string $path): bool
+    {
+        $path = trim($this->parseUriPath($path), '/');
+
+        if ($path === '') {
+            return false;
+        }
+
+        if ($this->centralPathPatterns === null) {
+            $this->centralPathPatterns = [];
+
+            foreach ($this->routes->getRoutes() as $route) {
+                $uri = trim($route->uri(), '/');
+
+                if ($route->getAction('central') === true && $uri !== '') {
+                    $this->centralPathPatterns[] = '#^'.preg_replace('/\\\\\{[^}]+\\\\\}/', '[^/]+', preg_quote($uri, '#')).'$#';
+                }
+            }
+        }
+
+        foreach ($this->centralPathPatterns as $pattern) {
+            if (preg_match($pattern, $path)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -106,25 +160,5 @@ class TenantUrlGenerator extends UrlGenerator
         }
 
         return $root.$segment.($path === '/' ? '' : $path);
-    }
-
-    public function route($name, $parameters = [], $absolute = true)
-    {
-        if (!is_null($route = $this->routes->getByName($name))) {
-            $tenant = app('tenant')->current();
-
-            $parametersArray = is_array($parameters) ? $parameters : [$parameters];
-
-            // Only add tenant parameter if route has {tenant} and is not excluded
-            if (!isset($parametersArray['tenant']) && str_contains($route->uri(), '{tenant}')) {
-                if ($tenant && !$this->shouldExcludeRoute($route, $name, $route->uri())) {
-                    $parametersArray = array_merge(['tenant' => $tenant], $parametersArray);
-                }
-            }
-
-            return $this->toRoute($route, $parametersArray, $absolute);
-        }
-
-        throw new RouteNotFoundException("Route [{$name}] not defined.");
     }
 }

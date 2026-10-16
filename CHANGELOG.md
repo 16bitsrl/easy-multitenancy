@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Sessions are now isolated per tenant: the tenant is identified before the session starts, so the tenant cookie name (and `session.use_tenant_db`) actually apply. Previously a session, including the logged-in user id, was shared across tenants.
+- Queued jobs now carry the tenant: injection reads the job object Laravel passes to payload hooks (it never matched before, so every job ran in the central context).
+- A worker no longer leaks a tenant into the next job after a released attempt, and sync jobs no longer change the tenant of the request that dispatched them.
+- `queue.strict_mode` now fails jobs whose tenant no longer exists instead of running them in the central context.
+- Queues on the `database` driver stay on the central connection instead of following the default connection into the tenant database.
+- Route model bindings resolve against the tenant database.
+- Grouped routes with a prefix keep their tenant segment when loaded from the route cache.
+- An app root route (prefixed to `{tenant}`) no longer shadows central routes registered after it, such as `/pricing`.
+- `route()`/`url()` no longer add the tenant to central routes; `url()` leaves `mailto:`, `tel:` and `#fragment` links alone and checks the tenant segment exactly.
+- The tenant URL default is cleared after each request and on Octane lifecycle events.
+- `routes.parameter` is honoured everywhere (it was hardcoded to `tenant` in several places).
+- `Tenant::centralRoutes()` works with `routes.auto_prefix` disabled.
+- `file` and `array` cache stores are isolated per tenant.
+- A `url` (or `read`/`write`) on the tenant connection no longer overrides the tenant database path.
+- `Tenant::forget()` restores the tenant connection configuration; a failed `Tenant::identify()` no longer leaves a partial tenant context.
+- `tenant:create` creates the database exclusively, rejects names reserved by the application (excluded paths, central routes), no longer deletes the new tenant when the app has no `login` route, and hides the admin password while typing.
+- The not-found response for an unknown tenant no longer echoes the requested name.
+
+### Changed
+- **Breaking:** the tenant parameter is no longer passed to controllers and route closures; use `Tenant::current()`.
+- **Breaking:** `QueueTenantInjector::shouldRestoreTenant()`, `restoreTenant()` and `cleanupTenant()` are replaced by `beginJob()` / `endJob()`.
+- Added `Tenant::isReserved()`.
+
 ## v0.3.1 - 2026-05-31
 
 ### Fixed

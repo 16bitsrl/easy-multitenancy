@@ -6,8 +6,10 @@ use Bit16\EasyMultitenancy\Facades\Tenant;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
+use function Laravel\Prompts\password;
 use function Laravel\Prompts\text;
 
 class CreateTenantCommand extends Command
@@ -27,6 +29,7 @@ class CreateTenantCommand extends Command
                 strlen($value) > 255 => 'The tenant name is too long (max 255 characters).',
                 !preg_match('/^[a-z0-9-]+$/', $value) => 'The tenant name must contain only lowercase letters, numbers, and hyphens.',
                 str_contains($value, '..') => 'The tenant name contains invalid characters.',
+                Tenant::isReserved($value) => "The tenant name '{$value}' is reserved by the application.",
                 Tenant::exists($value) => "Tenant '{$value}' already exists.",
                 default => null
             }
@@ -36,6 +39,12 @@ class CreateTenantCommand extends Command
 
         if (! Tenant::isValid($name)) {
             $this->error('The tenant name must contain only lowercase letters, numbers, and hyphens.');
+
+            return self::FAILURE;
+        }
+
+        if (Tenant::isReserved($name)) {
+            $this->error("The tenant name '{$name}' is reserved by the application.");
 
             return self::FAILURE;
         }
@@ -61,7 +70,7 @@ class CreateTenantCommand extends Command
                 }
             );
 
-            $passwordInput = text(
+            $passwordInput = password(
                 label: 'Admin password (leave blank to generate)',
                 placeholder: 'Leave blank to generate a random password',
                 required: false,
@@ -73,13 +82,25 @@ class CreateTenantCommand extends Command
         $database = Tenant::getDatabasePath($name);
         $path = dirname($database);
 
-        try {
-            if (!is_dir($path)) {
-                mkdir($path, 0755, true);
-                $this->info("Created directory: {$path}");
-            }
+        if (!is_dir($path)) {
+            mkdir($path, 0755, true);
+            $this->info("Created directory: {$path}");
+        }
 
-            touch($database);
+        // Create the file exclusively: if another process created the same
+        // tenant in the meantime, stop instead of sharing (or later deleting)
+        // its database.
+        $handle = @fopen($database, 'x');
+
+        if ($handle === false) {
+            $this->error("Tenant '{$name}' already exists.");
+
+            return self::FAILURE;
+        }
+
+        fclose($handle);
+
+        try {
             $this->info("Created database: {$database}");
 
             $this->info("Running migrations for tenant '{$name}'...");
@@ -100,7 +121,9 @@ class CreateTenantCommand extends Command
                     $this->components->info('Tenant created successfully!');
                     $this->newLine();
                     $this->components->twoColumnDetail('Tenant', $name);
-                    $this->components->twoColumnDetail('Login URL', route('login', ['tenant' => $name]));
+                    if (Route::has('login')) {
+                        $this->components->twoColumnDetail('Login URL', route('login', [config('easy-multitenancy.routes.parameter', 'tenant') => $name]));
+                    }
                     $this->components->twoColumnDetail('Email', $credentials['email']);
                     $this->components->twoColumnDetail('Password', $credentials['password']);
                     $this->newLine();

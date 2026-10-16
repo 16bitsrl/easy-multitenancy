@@ -14,7 +14,8 @@ class IdentifyTenant
     public function handle(Request $request, Closure $next): Response
     {
         $parameter = config('easy-multitenancy.routes.parameter', 'tenant');
-        $tenant = $request->route($parameter);
+        $route = $request->route();
+        $tenant = $route?->parameter($parameter);
 
         if (! $tenant) {
             return $next($request);
@@ -33,13 +34,27 @@ class IdentifyTenant
             // the tenant context below has been forgotten.
             URL::defaults([$parameter => $tenant]);
 
+            // The tenant is available through Tenant::current(). Removing it
+            // from the route parameters keeps it out of the arguments passed
+            // positionally to controllers and closures.
+            $route->forgetParameter($parameter);
+
             return $next($request);
         } catch (TenantNotFoundException $e) {
-            abort(404, $e->getMessage());
+            abort(404);
         } finally {
             if ($identified) {
                 Tenant::forget();
             }
         }
+    }
+
+    /**
+     * Drop the tenant URL default once the response has been sent, so it never
+     * carries over to the next request handled by the same process.
+     */
+    public function terminate(Request $request, Response $response): void
+    {
+        URL::defaults([config('easy-multitenancy.routes.parameter', 'tenant') => null]);
     }
 }

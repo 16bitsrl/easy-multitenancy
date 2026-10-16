@@ -3,6 +3,8 @@
 use Bit16\EasyMultitenancy\Contracts\GlobalJob;
 use Bit16\EasyMultitenancy\Facades\Tenant;
 use Bit16\EasyMultitenancy\Queue\QueueTenantInjector;
+use Illuminate\Mail\Mailable;
+use Illuminate\Mail\SendQueuedMailable;
 
 class SampleTenantJob
 {
@@ -13,13 +15,21 @@ class SampleGlobalJob implements GlobalJob
 {
 }
 
+class SampleMailable extends Mailable
+{
+}
+
+/**
+ * Mirror the payload Laravel hands to payload hooks: the job object itself,
+ * not yet serialized.
+ */
 function payloadFor(object $command): array
 {
     return [
         'displayName' => get_class($command),
         'data' => [
-            'commandName' => get_class($command),
-            'command' => serialize($command),
+            'commandName' => $command,
+            'command' => $command,
         ],
     ];
 }
@@ -60,39 +70,24 @@ it('does not inject jobs excluded by class name', function () {
     expect($this->injector->shouldInjectTenant(payloadFor(new SampleTenantJob())))->toBeFalse();
 });
 
-it('uses job metadata for class exclusions before unserializing commands', function () {
-    config()->set('easy-multitenancy.queue.excluded_jobs', [SampleTenantJob::class]);
+it('does not inject jobs opting out through the tenantAware property', function () {
+    $this->createTenant('acme');
+    Tenant::identify('acme');
+
+    $job = new class () {
+        public bool $tenantAware = false;
+    };
+
+    expect($this->injector->shouldInjectTenant(payloadFor($job)))->toBeFalse();
+});
+
+it('applies job exclusions to queued mailables', function () {
+    config()->set('easy-multitenancy.queue.excluded_jobs', [SampleMailable::class]);
 
     $this->createTenant('acme');
     Tenant::identify('acme');
 
-    $payload = [
-        'displayName' => SampleTenantJob::class,
-        'data' => [
-            'commandName' => SampleTenantJob::class,
-            'command' => 'not-a-serialized-command',
-        ],
-    ];
+    $payload = payloadFor(new SendQueuedMailable(new SampleMailable()));
 
     expect($this->injector->shouldInjectTenant($payload))->toBeFalse();
-});
-
-it('restores and cleans up the tenant context for a job', function () {
-    $this->createTenant('acme');
-
-    $payload = ['tenant_id' => 'acme'];
-
-    expect($this->injector->shouldRestoreTenant($payload))->toBeTrue();
-
-    $this->injector->restoreTenant($payload);
-    expect(Tenant::current())->toBe('acme');
-
-    $this->injector->cleanupTenant();
-    expect(Tenant::current())->toBeNull();
-});
-
-it('skips restoring for a non-existent tenant in strict mode', function () {
-    config()->set('easy-multitenancy.queue.strict_mode', true);
-
-    expect($this->injector->shouldRestoreTenant(['tenant_id' => 'ghost']))->toBeFalse();
 });

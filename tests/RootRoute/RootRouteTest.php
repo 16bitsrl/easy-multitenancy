@@ -35,3 +35,17 @@ it('keeps the prefixed root route when compiling for the route cache', function 
     // Name-based generation resolves the prefixed root route from the cache.
     expect(route('approot', ['tenant' => 'acme'], false))->toBe('/acme');
 });
+
+it('serves central routes registered after the app root instead of treating them as a tenant', function () {
+    $this->createTenant('acme');
+
+    $this->get('/about')->assertOk()->assertSee('about:none');
+    $this->get('/acme')->assertOk()->assertSee('app-root:acme');
+});
+
+it('keeps central routes ahead of the tenant root once routes are cached', function () {
+    $router = app('router');
+    $router->setCompiledRoutes($router->getRoutes()->compile());
+
+    $this->get('/about')->assertOk()->assertSee('about:none');
+});

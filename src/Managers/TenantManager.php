@@ -6,11 +6,14 @@ use Bit16\EasyMultitenancy\Events\DatabaseSwitched;
 use Bit16\EasyMultitenancy\Events\TenantIdentified;
 use Bit16\EasyMultitenancy\Events\TenantNotFound;
 use Bit16\EasyMultitenancy\Exceptions\TenantNotFoundException;
+use Illuminate\Cache\ArrayStore;
+use Illuminate\Cache\FileStore;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class TenantManager
 {
@@ -28,6 +31,11 @@ class TenantManager
      */
     protected array $snapshot = [];
 
+    /**
+     * Original directory of a file cache store, while it is tenant-scoped.
+     */
+    protected ?string $cacheDirectory = null;
+
     public function identify(string $tenant): void
     {
         if (! $this->exists($tenant)) {
@@ -38,12 +46,19 @@ class TenantManager
 
         $database = $this->getDatabasePath($tenant);
 
-        $this->currentTenant = $tenant;
-        $this->currentDatabase = $database;
+        try {
+            $this->currentTenant = $tenant;
+            $this->currentDatabase = $database;
 
-        $this->switchDatabase($tenant, $database);
+            $this->switchDatabase($tenant, $database);
 
-        event(new TenantIdentified($tenant, $database));
+            event(new TenantIdentified($tenant, $database));
+        } catch (\Throwable $e) {
+            // Never leave a half-applied tenant context behind.
+            $this->forget();
+
+            throw $e;
+        }
     }
 
     public function switchDatabase(string $tenant, string $database): void
@@ -76,9 +91,7 @@ class TenantManager
             Cache::forgetDriver('database');
         }
 
-        if (config('queue.default') === 'database') {
-            Config::set('queue.connections.database.connection', $connection);
-        }
+        $this->pinDatabaseQueuesToCentral();
 
         if (config('easy-multitenancy.cache.prefix_enabled', true)) {
             $this->setCachePrefix($tenant);
@@ -92,6 +105,8 @@ class TenantManager
             $this->setStorageSuffix($tenant);
         }
 
+        $this->refreshUnstartedSession();
+
         event(new DatabaseSwitched($tenant, $database, $connection));
     }
 
@@ -104,14 +119,17 @@ class TenantManager
             return;
         }
 
+        $connection = config('easy-multitenancy.database.connection', 'tenant');
+
         $this->snapshot = [
             'database.default' => config('database.default'),
+            "database.connections.{$connection}" => config("database.connections.{$connection}"),
+            'queue.connections' => config('queue.connections'),
             'cache.prefix' => config('cache.prefix'),
             'session.cookie' => config('session.cookie'),
             'session.driver' => config('session.driver'),
             'session.connection' => config('session.connection'),
             'cache.stores.database.connection' => config('cache.stores.database.connection'),
-            'queue.connections.database.connection' => config('queue.connections.database.connection'),
             'filesystems.default' => config('filesystems.default'),
         ];
     }
@@ -125,6 +143,11 @@ class TenantManager
     {
         $existing = config("database.connections.{$connection}");
         $existing = is_array($existing) ? $existing : [];
+
+        // A connection URL (or read/write overrides) would replace the tenant
+        // database path when the connection is parsed, pointing every tenant
+        // at the same database.
+        unset($existing['url'], $existing['read'], $existing['write']);
 
         Config::set("database.connections.{$connection}", array_merge([
             'driver' => 'sqlite',
@@ -147,13 +170,68 @@ class TenantManager
         Config::set('cache.prefix', $prefix);
 
         $store = Cache::getStore();
-        if (method_exists($store, 'setPrefix')) {
+
+        if ($store instanceof FileStore) {
+            $this->cacheDirectory ??= $store->getDirectory();
+            $store->setDirectory($this->cacheDirectory.'/'.$tenant);
+        } elseif ($store instanceof ArrayStore) {
+            // In-memory and keyless: start every tenant context from a fresh store.
+            Cache::forgetDriver(config('cache.default'));
+        } elseif (method_exists($store, 'setPrefix')) {
             $store->setPrefix($prefix);
         } else {
             Log::warning('Cache store does not support setPrefix, tenant cache isolation may not work', [
                 'store' => get_class($store),
                 'tenant' => $tenant,
             ]);
+        }
+    }
+
+    /**
+     * Keep queues backed by the database on the central connection. A queue
+     * connection without an explicit database connection would otherwise
+     * follow the default connection into the tenant database, where workers
+     * never look for jobs.
+     */
+    protected function pinDatabaseQueuesToCentral(): void
+    {
+        foreach ((array) config('queue.connections') as $name => $queue) {
+            if (is_array($queue) && ($queue['driver'] ?? null) === 'database' && empty($queue['connection'])) {
+                Config::set("queue.connections.{$name}.connection", $this->snapshot['database.default']);
+            }
+        }
+    }
+
+    /**
+     * Drop session stores that have not been started yet or that belong to
+     * another context, so the session is opened with the tenant's cookie name
+     * and connection. A started store of the same tenant (e.g. when a sync
+     * job restores the request's tenant) is left alone.
+     */
+    protected function refreshUnstartedSession(): void
+    {
+        if (! app()->resolved('session')) {
+            return;
+        }
+
+        $session = app('session');
+        $stale = false;
+
+        foreach ($session->getDrivers() as $store) {
+            if (! $store->isStarted() || $store->getName() !== config('session.cookie')) {
+                $stale = true;
+            }
+        }
+
+        if (! $stale) {
+            return;
+        }
+
+        $session->forgetDrivers();
+        app()->forgetInstance('session.store');
+
+        if (app()->resolved('auth')) {
+            app('auth')->forgetGuards();
         }
     }
 
@@ -255,6 +333,28 @@ class TenantManager
         return (bool) preg_match('/^[a-z0-9\-]+$/', trim($name));
     }
 
+    /**
+     * Whether a name would collide with a path the application already serves
+     * outside tenants: an excluded pattern (e.g. "api/*", "up") or the first
+     * segment of a central route. Such a tenant would be unreachable.
+     */
+    public function isReserved(string $name): bool
+    {
+        foreach (config('easy-multitenancy.routes.excluded_patterns', []) as $pattern) {
+            if (is_string($pattern) && (Str::is($pattern, $name) || Str::is($pattern, $name.'/'))) {
+                return true;
+            }
+        }
+
+        foreach (app('router')->getRoutes()->getRoutes() as $route) {
+            if ($route->getAction('central') === true && explode('/', ltrim($route->uri(), '/'))[0] === $name) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function getDatabasePath(string $tenant): ?string
     {
         try {
@@ -315,7 +415,7 @@ class TenantManager
             return [];
         }
 
-        $files = glob($path.'/*'.$extension);
+        $files = glob($path.'/*'.$extension) ?: [];
 
         return array_map(function ($file) use ($extension) {
             return str_replace($extension, '', basename($file));
@@ -334,9 +434,14 @@ class TenantManager
             DB::setDefaultConnection($this->snapshot['database.default']);
             DB::purge($connection);
 
-            // Reset the active cache store prefix back to the pristine base.
+            // Reset the active cache store back to its pristine namespace.
             $store = Cache::getStore();
-            if (method_exists($store, 'setPrefix')) {
+            if ($store instanceof FileStore && $this->cacheDirectory !== null) {
+                $store->setDirectory($this->cacheDirectory);
+                $this->cacheDirectory = null;
+            } elseif ($store instanceof ArrayStore) {
+                Cache::forgetDriver(config('cache.default'));
+            } elseif (method_exists($store, 'setPrefix')) {
                 $store->setPrefix((string) ($this->snapshot['cache.prefix'] ?? ''));
             }
             Cache::forgetDriver('database');

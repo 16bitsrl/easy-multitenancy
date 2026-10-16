@@ -31,7 +31,8 @@ return [
     'session' => [
         'suffix_enabled' => env('TENANT_SESSION_SUFFIX', true),
 
-        // Store database sessions in the tenant database instead of the central one.
+        // Store database sessions in the tenant database instead of the central one
+        // (each tenant database then needs the sessions table).
         'use_tenant_db' => env('TENANT_SESSION_USE_DB', false),
     ],
 

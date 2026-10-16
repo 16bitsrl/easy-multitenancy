@@ -1,6 +1,8 @@
 <?php
 
 use Bit16\EasyMultitenancy\Facades\Tenant;
+use Illuminate\Foundation\Http\Events\RequestHandled;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\URL;
 
 /*
@@ -26,9 +28,14 @@ it('keeps generating tenant route urls after the tenant context is forgotten', f
 it('exposes the tenant as a url default through the identify middleware', function () {
     $this->createTenant('acme');
 
-    // The dashboard handler generates a {tenant} URL without passing the
-    // parameter explicitly, proving the middleware registered the default.
+    // Response phase: the tenant context is already forgotten, as when
+    // Livewire injects its assets on RequestHandled.
+    $generated = null;
+    Event::listen(RequestHandled::class, function () use (&$generated) {
+        $generated = [Tenant::current(), route('dashboard', [], false)];
+    });
+
     $this->get('/acme/dashboard')->assertOk();
 
-    expect(route('dashboard', [], false))->toBe('/acme/dashboard');
+    expect($generated)->toBe([null, '/acme/dashboard']);
 });

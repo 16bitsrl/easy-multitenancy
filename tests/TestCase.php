@@ -4,6 +4,9 @@ namespace Bit16\EasyMultitenancy\Tests;
 
 use Bit16\EasyMultitenancy\EasyMultitenancyServiceProvider;
 use Bit16\EasyMultitenancy\Facades\Tenant;
+use Bit16\EasyMultitenancy\Tests\Fixtures\Post;
+use Bit16\EasyMultitenancy\Tests\Fixtures\RecordGlobalJob;
+use Bit16\EasyMultitenancy\Tests\Fixtures\RecordTenantJob;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Routing\Router;
@@ -17,6 +20,9 @@ class TestCase extends Orchestra
     protected function setUp(): void
     {
         parent::setUp();
+
+        RecordTenantJob::$seen = [];
+        RecordGlobalJob::$seen = [];
 
         Factory::guessFactoryNamesUsing(
             fn (string $modelName) => 'Bit16\\EasyMultitenancy\\Database\\Factories\\'.class_basename($modelName).'Factory'
@@ -58,6 +64,42 @@ class TestCase extends Orchestra
             $router->get('home', fn () => 'central:'.(Tenant::current() ?? 'none'))->name('home');
             $router->get('login', fn () => 'login')->name('login');
             $router->get('account', fn () => 'account')->middleware('auth')->name('account');
+
+            $router->get('session/put', function () {
+                session(['who' => Tenant::current()]);
+
+                return 'stored';
+            });
+            $router->get('session/get', fn () => 'who='.(session('who') ?? 'null'));
+
+            $router->get('posts/{post}', fn (string $post) => 'post:'.$post);
+            $router->get('bound-posts/{post}', fn (Post $post) => 'title:'.$post->title);
+
+            $router->get('links', fn () => [
+                'dashboard' => route('dashboard', [], false),
+                'pricing_route' => route('pricing', [], false),
+                'pricing_url' => url('/pricing'),
+                'mailto' => url('mailto:hello@example.com'),
+                'fragment' => url('#top'),
+                'lookalike' => url('/acme-docs/intro'),
+                'already_prefixed' => url('acme/dashboard'),
+            ]);
+
+            $router->prefix('admin')->group(function (Router $router) {
+                $router->get('review', fn () => 'review:'.(Tenant::current() ?? 'none'));
+            });
+
+            $router->get('jobs/dispatch', function () {
+                RecordTenantJob::dispatch();
+
+                return 'dispatched';
+            });
+            $router->get('jobs/sync', function () {
+                RecordTenantJob::dispatchSync();
+                RecordGlobalJob::dispatchSync();
+
+                return 'after:'.(Tenant::current() ?? 'none');
+            });
         });
 
         Tenant::centralRoutes(function (Router $router) {

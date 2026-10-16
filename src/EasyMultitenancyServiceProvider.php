@@ -17,12 +17,15 @@ use Bit16\EasyMultitenancy\Traits\ChecksRouteExclusions;
 use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Queue\Events\JobExceptionOccurred;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\RouteCollection;
+use Illuminate\Routing\RouteCollectionInterface;
 use Illuminate\Routing\Router;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Spatie\LaravelPackageTools\Package;
@@ -96,9 +99,7 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
 
         $this->prioritizeTenantMiddleware();
 
-        if (config('easy-multitenancy.routes.auto_prefix', true)) {
-            $this->autoPrefixRoutes();
-        }
+        $this->rewriteRoutes();
 
         $this->registerDefaultCentralHome();
 
@@ -110,14 +111,15 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
     }
 
     /**
-     * Ensure tenant identification runs before Laravel's Authenticate middleware.
+     * Ensure tenant identification runs before the session is started (and so
+     * before Laravel's Authenticate middleware).
      *
      * Route middleware is executed in the order of a global priority list.
-     * Authenticate is on that list while the tenant middleware is not, so the
-     * auth check can otherwise run first. For a guest hitting a protected tenant
-     * route that means the "{tenant}/login" redirect URL is generated before the
-     * tenant has been identified, throwing a missing-parameter error instead of
-     * redirecting to the tenant login page.
+     * StartSession and Authenticate are on that list while the tenant
+     * middleware is not, so they could otherwise run first: the session would
+     * be opened with the shared cookie name (leaking the session, and the
+     * logged-in user, across tenants) and a guest's "{tenant}/login" redirect
+     * would be generated before the tenant is known.
      */
     protected function prioritizeTenantMiddleware(): void
     {
@@ -127,11 +129,11 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             // middleware-priority API used below.
             $kernel = $this->app->make(HttpKernel::class);
 
-            // The framework lists the auth middleware in the priority array by
-            // its contract, with the concrete class kept as a fallback for
-            // apps that reference it directly.
+            // Placed before the earliest of these that is on the list. The auth
+            // middleware is listed by its contract, with the concrete class kept
+            // as a fallback for apps that reference it directly.
             $kernel->addToMiddlewarePriorityBefore(
-                [AuthenticatesRequests::class, Authenticate::class],
+                [StartSession::class, AuthenticatesRequests::class, Authenticate::class],
                 IdentifyTenant::class,
             );
         });
@@ -140,7 +142,7 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
     /**
      * Rebuild the route collection once all URI rewriting (tenant prefixing and
      * central-home registration) has happened, so every route is re-indexed
-     * under its current URI.
+     * under its current URI, with tenant routes after all the others.
      *
      * Prefixing mutates a route's URI in place (e.g. "/" becomes "{tenant}")
      * but the collection keeps indexing it under its original key. When the
@@ -160,8 +162,23 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             $router = $this->app->make(Router::class);
 
             $rebuilt = new RouteCollection();
+            $placeholder = '{'.$this->tenantParameter().'}';
+            $tenantRoutes = [];
 
+            // Routes are matched in order: register tenant routes last, so a
+            // catch-all such as "{tenant}" (an app root) cannot shadow central
+            // or excluded routes registered after it (e.g. "/pricing").
             foreach ($router->getRoutes()->getRoutes() as $route) {
+                $uri = $route->uri();
+
+                if ($uri === $placeholder || str_starts_with($uri, $placeholder.'/')) {
+                    $tenantRoutes[] = $route;
+                } else {
+                    $rebuilt->add($route);
+                }
+            }
+
+            foreach ($tenantRoutes as $route) {
                 $rebuilt->add($route);
             }
 
@@ -216,8 +233,9 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
 
     /**
      * Inject the current tenant into queued jobs at dispatch and restore it
-     * before each job runs, cleaning up afterwards. Jobs can opt out via the
-     * GlobalJob interface, config exclusions or a `tenantAware = false` property.
+     * before each job runs, then put the previous context back. Jobs can opt
+     * out via the GlobalJob interface, config exclusions or a
+     * `tenantAware = false` property.
      */
     protected function registerQueueTenantInjection(): void
     {
@@ -229,23 +247,14 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
                 : $payload;
         });
 
-        Event::listen(JobProcessing::class, function ($event) use ($injector) {
-            $payload = $event->job->payload();
+        Event::listen(JobProcessing::class, fn ($event) => $injector->beginJob($event->job));
 
-            if ($injector->shouldRestoreTenant($payload)) {
-                $injector->restoreTenant($payload);
-            }
-        });
-
-        Event::listen(JobProcessed::class, function ($event) use ($injector) {
-            if (isset($event->job->payload()['tenant_id'])) {
-                $injector->cleanupTenant();
-            }
-        });
-
-        Event::listen(JobFailed::class, function () use ($injector) {
-            $injector->cleanupTenant();
-        });
+        // Every way an attempt can end: success, an exception (the job may be
+        // released for a retry), or failure.
+        Event::listen(
+            [JobProcessed::class, JobExceptionOccurred::class, JobFailed::class],
+            fn ($event) => $injector->endJob($event->job),
+        );
     }
 
     /**
@@ -269,6 +278,10 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             $this->app['events']->listen($event, function () {
                 if ($this->app->resolved('tenant')) {
                     $this->app->make('tenant')->forget();
+                }
+
+                if ($this->app->resolved('url')) {
+                    $this->app->make('url')->defaults([$this->tenantParameter() => null]);
                 }
             });
         }
@@ -300,73 +313,48 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
         }
     }
 
-    protected function autoPrefixRoutes(): void
+    /**
+     * Strip the central-route marker from routes declared via
+     * Tenant::centralRoutes() and, when auto-prefixing is enabled, prefix every
+     * other route with the tenant parameter.
+     */
+    protected function rewriteRoutes(): void
     {
-        // When routes are cached the prefixing is already baked into the cache
+        // When routes are cached the rewriting is already baked into the cache
         // file (it ran while the cache was being built). Re-running it at
         // runtime would double-prefix routes loaded from the cache.
         if ($this->app->routesAreCached()) {
             return;
         }
 
-        $prefixed = [];
-
-        $this->app->booted(function () use (&$prefixed) {
-            $router = $this->app->make(Router::class);
-            $excludedRoutes = config('easy-multitenancy.routes.excluded_routes', []);
-            $excludedPatterns = config('easy-multitenancy.routes.excluded_patterns', []);
-
-            foreach ($router->getRoutes()->getRoutes() as $route) {
-                $routeKey = spl_object_id($route);
-
-                if (in_array($routeKey, $prefixed)) {
-                    continue;
-                }
-
-                // Central routes: strip the marker prefix and skip tenant prefixing.
-                if ($this->processCentralRoute($route)) {
-                    $prefixed[] = $routeKey;
-
-                    continue;
-                }
-
-                if ($this->shouldPrefixRoute($route, $excludedRoutes, $excludedPatterns)) {
-                    $this->prefixRoute($route);
-                    $prefixed[] = $routeKey;
-                }
-            }
-
-            $router->getRoutes()->refreshNameLookups();
-            $router->getRoutes()->refreshActionLookups();
+        $this->app->booted(function () {
+            $this->rewriteRouteCollection($this->app->make(Router::class)->getRoutes());
         });
 
-        $this->app->rebinding('routes', function ($app, $routes) use (&$prefixed) {
-            $excludedRoutes = config('easy-multitenancy.routes.excluded_routes', []);
-            $excludedPatterns = config('easy-multitenancy.routes.excluded_patterns', []);
+        $this->app->rebinding('routes', function ($app, $routes) {
+            $this->rewriteRouteCollection($routes);
+        });
+    }
 
-            foreach ($routes as $route) {
-                $routeKey = spl_object_id($route);
+    protected function rewriteRouteCollection(RouteCollectionInterface $routes): void
+    {
+        $autoPrefix = config('easy-multitenancy.routes.auto_prefix', true);
+        $excludedRoutes = config('easy-multitenancy.routes.excluded_routes', []);
+        $excludedPatterns = config('easy-multitenancy.routes.excluded_patterns', []);
 
-                if (in_array($routeKey, $prefixed)) {
-                    continue;
-                }
-
-                // Central routes: strip the marker prefix and skip tenant prefixing.
-                if ($this->processCentralRoute($route)) {
-                    $prefixed[] = $routeKey;
-
-                    continue;
-                }
-
-                if ($this->shouldPrefixRoute($route, $excludedRoutes, $excludedPatterns)) {
-                    $this->prefixRoute($route);
-                    $prefixed[] = $routeKey;
-                }
+        foreach ($routes->getRoutes() as $route) {
+            // Central routes: strip the marker prefix and skip tenant prefixing.
+            if ($this->processCentralRoute($route)) {
+                continue;
             }
 
-            $routes->refreshNameLookups();
-            $routes->refreshActionLookups();
-        });
+            if ($autoPrefix && $this->shouldPrefixRoute($route, $excludedRoutes, $excludedPatterns)) {
+                $this->prefixRoute($route);
+            }
+        }
+
+        $routes->refreshNameLookups();
+        $routes->refreshActionLookups();
     }
 
     protected function shouldPrefixRoute(Route $route, array $excludedRoutes, array $excludedPatterns): bool
@@ -378,6 +366,12 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
 
         $name = $route->getName();
         $uri = $route->uri();
+        $placeholder = '{'.$this->tenantParameter().'}';
+
+        // Already tenant-scoped (re-processing, or declared explicitly).
+        if ($uri === $placeholder || str_starts_with($uri, $placeholder.'/')) {
+            return false;
+        }
 
         // Use the shared exclusion logic from trait (inverted logic)
         return !$this->isRouteExcluded($route, $name, $uri, $excludedRoutes, $excludedPatterns);
@@ -409,16 +403,16 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
         return true;
     }
 
+    protected function tenantParameter(): string
+    {
+        return config('easy-multitenancy.routes.parameter', 'tenant');
+    }
+
     protected function prefixRoute(Route $route): void
     {
-        $currentUri = $route->uri();
-        $currentUri = ltrim($currentUri, '/');
-
-        if ($currentUri === '') {
-            $route->setUri('{tenant}');
-        } else {
-            $route->setUri('{tenant}/' . $currentUri);
-        }
+        // prefix() also records the segment in the action's "prefix", which
+        // the route cache relies on to rebuild the URI of grouped routes.
+        $route->prefix('{'.$this->tenantParameter().'}');
 
         $action = $route->getAction();
         if (!isset($action['middleware'])) {
@@ -429,11 +423,10 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             $action['middleware'] = [$action['middleware']];
         }
 
+        // Identify the tenant first: the session, route model bindings and
+        // auth must all be resolved within the tenant context.
         if (! in_array('tenant', $action['middleware'], true)) {
-            $webMiddlewareIndex = array_search('web', $action['middleware'], true);
-            $tenantMiddlewareIndex = $webMiddlewareIndex === false ? 0 : $webMiddlewareIndex + 1;
-
-            array_splice($action['middleware'], $tenantMiddlewareIndex, 0, 'tenant');
+            array_unshift($action['middleware'], 'tenant');
         }
 
         // Track the visited tenant (self-guards on the config flag).

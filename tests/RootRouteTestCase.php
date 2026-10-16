@@ -15,5 +15,10 @@ class RootRouteTestCase extends TestCase
         $router->middleware('web')->group(function (Router $router) {
             $router->get('/', fn () => 'app-root:'.(Tenant::current() ?? 'none'))->name('approot');
         });
+
+        // A central route registered after the root, which becomes "{tenant}".
+        Tenant::centralRoutes(function (Router $router) {
+            $router->middleware('web')->get('about', fn () => 'about:'.(Tenant::current() ?? 'none'))->name('about');
+        });
     }
 }
