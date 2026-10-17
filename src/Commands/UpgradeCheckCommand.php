@@ -182,7 +182,7 @@ class UpgradeCheckCommand extends Command
         }
 
         $this->findings['Tenant files in the previous storage location'][] =
-            "Move {$old} to {$new} (e.g. mv {$old} {$new}). Public files go under the public disk root instead.";
+            "Move the contents of {$old} to {$new} (e.g. rsync -a {$old}/ {$new}/), then remove the old folder once checked. Files meant to be public belong in the {$folder} folder of the public disk.";
     }
 
     protected function relativePath(string $path): string

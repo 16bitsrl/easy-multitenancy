@@ -59,6 +59,6 @@ it('flags files left in the previous tenant storage folder', function () {
     app('router')->getRoutes()->getByName('legacy')->setAction(['uses' => fn ($item) => $item]);
 
     $this->artisan('tenant:upgrade-check', ['--path' => [$this->scanPath]])
-        ->expectsOutputToContain("storage/app/tenants to {$this->tenantPath}/storage/app/private/tenants")
+        ->expectsOutputToContain("storage/app/tenants to {$this->tenantPath}/storage/app/private/tenants (e.g. rsync -a")
         ->assertExitCode(1);
 });
