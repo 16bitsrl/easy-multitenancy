@@ -63,3 +63,34 @@ jobs:
 
       - name: Execute tests
         run: vendor/bin/pest --ci
+
+  redis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    name: Redis - P8.5 - L13.*
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.5
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, redis
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Execute Redis tests
+        run: vendor/bin/pest --ci tests/Feature/RedisTest.php
+        env:
+          EASY_MULTITENANCY_TEST_REDIS: 127.0.0.1:6379

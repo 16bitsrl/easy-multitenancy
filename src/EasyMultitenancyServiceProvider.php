@@ -281,6 +281,7 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             $this->app['events']->listen($event, function () {
                 if ($this->app->resolved('tenant')) {
                     $this->app->make('tenant')->forget();
+                    $this->app->make('tenant')->flushSessionState();
                 }
 
                 if ($this->app->resolved('url')) {

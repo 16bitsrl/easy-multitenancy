@@ -106,6 +106,7 @@ class TestCase extends Orchestra
         Tenant::centralRoutes(function (Router $router) {
             $router->middleware('web')->get('pricing', fn () => 'pricing:'.(Tenant::current() ?? 'none'))->name('pricing');
             $router->middleware('web')->get('recent', fn () => Tenant::getRecentTenants())->name('recent');
+            $router->middleware('web')->get('central-session', fn () => 'session:'.session()->getName().' who='.(session('who') ?? 'null'));
         });
     }
 

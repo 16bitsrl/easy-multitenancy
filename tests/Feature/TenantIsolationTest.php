@@ -2,6 +2,7 @@
 
 use Bit16\EasyMultitenancy\Facades\Tenant;
 use Bit16\EasyMultitenancy\Tests\Fixtures\Post;
+use Illuminate\Support\Facades\Facade;
 
 /*
  * Each tenant must get its own session: the session is started with the
@@ -40,6 +41,28 @@ it('does not share a session between tenants', function () {
     $this->withCookie($base.'_acme', $sessionId)
         ->get('/contoso/session/get')
         ->assertSee('who=null');
+});
+
+it('uses the tenant session cookie when the configuration is sandboxed per request', function () {
+    $base = config('session.cookie');
+
+    // Octane warms the session manager, then hands each request a clone of
+    // the configuration (and clears facades): the manager keeps reading the
+    // original one.
+    app('session');
+    $this->app->instance('config', clone $this->app['config']);
+    Facade::clearResolvedInstance('config');
+
+    $this->get('/acme/session/put')->assertCookie($base.'_acme');
+});
+
+it('opens central requests with the central session after a tenant request', function () {
+    $base = config('session.cookie');
+
+    $this->get('/acme/session/put')->assertOk();
+
+    // Same process, as with Octane or several requests in one test.
+    $this->get('/central-session')->assertOk()->assertSee("session:{$base} who=null");
 });
 
 it('keeps the tenant parameter out of the route action arguments', function () {

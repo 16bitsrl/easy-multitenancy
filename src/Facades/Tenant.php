@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static string|null getDatabasePath(string $tenant)
  * @method static array all()
  * @method static void forget()
+ * @method static void flushSessionState()
  *
  * @see \Bit16\EasyMultitenancy\Managers\TenantManager
  */

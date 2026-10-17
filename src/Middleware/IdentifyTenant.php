@@ -50,11 +50,14 @@ class IdentifyTenant
     }
 
     /**
-     * Drop the tenant URL default once the response has been sent, so it never
-     * carries over to the next request handled by the same process.
+     * Once the response has been sent, drop what was bound to the tenant (URL
+     * default, session store, auth guards) so it never carries over to the
+     * next request handled by the same process.
      */
     public function terminate(Request $request, Response $response): void
     {
         URL::defaults([config('easy-multitenancy.routes.parameter', 'tenant') => null]);
+
+        Tenant::flushSessionState();
     }
 }

@@ -213,20 +213,43 @@ class TenantManager
             return;
         }
 
-        $session = app('session');
-        $stale = false;
+        $drivers = app('session')->getDrivers();
 
-        foreach ($session->getDrivers() as $store) {
+        // A started store of this same tenant is the current request's session
+        // (e.g. a sync job restoring the request's tenant): keep it.
+        $inUse = $drivers !== [];
+
+        foreach ($drivers as $store) {
             if (! $store->isStarted() || $store->getName() !== config('session.cookie')) {
-                $stale = true;
+                $inUse = false;
             }
         }
 
-        if (! $stale) {
-            return;
+        if (! $inUse) {
+            $this->flushSessionState();
+        }
+    }
+
+    /**
+     * Drop the resolved session stores and auth guards. They are bound to the
+     * tenant they were opened for (cookie name, database connection), so they
+     * must not be reused by a later request in the same process.
+     */
+    public function flushSessionState(): void
+    {
+        if (app()->resolved('session')) {
+            $manager = app('session');
+            $manager->forgetDrivers();
+
+            // The manager keeps the configuration repository it was created
+            // with. Octane gives every request a copy of the configuration, so
+            // point the manager at the current one, where the tenant cookie
+            // name and connection are set. The manager itself must stay: the
+            // StartSession middleware is a singleton holding it.
+            $config = app('config');
+            (fn () => $this->config = $config)->call($manager);
         }
 
-        $session->forgetDrivers();
         app()->forgetInstance('session.store');
 
         if (app()->resolved('auth')) {
