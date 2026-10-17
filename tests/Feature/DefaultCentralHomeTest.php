@@ -6,9 +6,24 @@ it('serves the default central home at / with the app name and tenant picker', f
     $this->get('/')
         ->assertOk()
         ->assertSee('Acme Suite')
+        ->assertSee('Recent tenants')
+        ->assertSee('No recently visited tenants.')
+        ->assertSee('<html lang="en">', false)
+        ->assertSee('name="tenant"', false);
+});
+
+it('renders the central home in the application locale', function () {
+    app()->setLocale('it');
+
+    $this->get('/')
+        ->assertOk()
         ->assertSee('Tenant recenti')
         ->assertSee('Nessun tenant visitato di recente.')
-        ->assertSee('name="tenant"', false);
+        ->assertSee('<html lang="it">', false);
+
+    $this->followingRedirects()
+        ->post('/', ['tenant' => 'ghost'])
+        ->assertSee('Tenant non trovato.');
 });
 
 it('redirects to the tenant root when the submitted tenant exists', function () {
@@ -18,17 +33,17 @@ it('redirects to the tenant root when the submitted tenant exists', function () 
     $this->post('/', ['tenant' => 'ACME'])->assertRedirect('/acme'); // case-insensitive courtesy
 });
 
-it('shows a generic "tenant non trovato" for an invalid identifier', function () {
+it('shows a generic "tenant not found" for an invalid identifier', function () {
     $this->followingRedirects()
         ->post('/', ['tenant' => 'Acme Corp'])
         ->assertOk()
-        ->assertSee('Tenant non trovato');
+        ->assertSee('Tenant not found.');
 });
 
-it('shows a generic "tenant non trovato" for a non-existent tenant and keeps the input', function () {
+it('shows a generic "tenant not found" for a non-existent tenant and keeps the input', function () {
     $this->followingRedirects()
         ->post('/', ['tenant' => 'ghost'])
         ->assertOk()
-        ->assertSee('Tenant non trovato')
+        ->assertSee('Tenant not found.')
         ->assertSee('value="ghost"', false);
 });

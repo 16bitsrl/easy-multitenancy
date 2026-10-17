@@ -19,7 +19,7 @@ class CentralHomeController
             ->map(fn ($timestamp, $name) => [
                 'name' => $name,
                 'url' => url('/'.$name),
-                'when' => Carbon::createFromTimestamp($timestamp)->diffForHumans(),
+                'when' => Carbon::createFromTimestamp($timestamp)->locale(app()->getLocale())->diffForHumans(),
             ])
             ->values()
             ->all();
@@ -40,7 +40,7 @@ class CentralHomeController
             return redirect('/'.$candidate);
         }
 
-        return redirect('/')->withInput()->with('error', 'Tenant non trovato.');
+        return redirect('/')->withInput()->with('error', __('easy-multitenancy::central-home.not_found'));
     }
 
     /**

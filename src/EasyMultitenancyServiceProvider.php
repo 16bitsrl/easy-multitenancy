@@ -40,6 +40,7 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             ->name('easy-multitenancy')
             ->hasConfigFile()
             ->hasViews()
+            ->hasTranslations()
             ->hasCommands([
                 ListTenantsCommand::class,
                 CreateTenantCommand::class,

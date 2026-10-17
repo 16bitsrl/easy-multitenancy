@@ -1,6 +1,6 @@
 @php($appName = $appName ?? config('app.name', 'Laravel'))
 <!DOCTYPE html>
-<html lang="it">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -208,23 +208,23 @@
             <div class="monogram" aria-hidden="true">{{ mb_strtoupper(mb_substr($appName, 0, 1)) }}</div>
             <div>
                 <h1 class="brand-name">{{ $appName }}</h1>
-                <p class="brand-tag">Accesso tenant</p>
+                <p class="brand-tag">{{ __('easy-multitenancy::central-home.tagline') }}</p>
             </div>
         </div>
 
-        <p class="lead">Inserisci l'identificativo di un tenant per entrare, oppure scegline uno tra i recenti.</p>
+        <p class="lead">{{ __('easy-multitenancy::central-home.lead') }}</p>
 
         <form method="POST" action="{{ url('/') }}">
             @csrf
             <div class="field">
-                <input type="text" id="tenant" name="tenant" placeholder="nome-tenant" required
+                <input type="text" id="tenant" name="tenant" placeholder="{{ __('easy-multitenancy::central-home.placeholder') }}" required
                        value="{{ $prefill ?? '' }}"
                        autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
-                       inputmode="text" aria-label="Identificativo del tenant"
+                       inputmode="text" aria-label="{{ __('easy-multitenancy::central-home.input_label') }}"
                        @if(! empty($error)) class="is-invalid" aria-invalid="true" aria-describedby="tenant-error" @endif
                        autofocus>
                 <button type="submit" class="btn">
-                    Entra
+                    {{ __('easy-multitenancy::central-home.submit') }}
                     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
                         <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
@@ -236,7 +236,7 @@
         </form>
 
         <section class="recent">
-            <h2 class="recent-head">Tenant recenti</h2>
+            <h2 class="recent-head">{{ __('easy-multitenancy::central-home.recent') }}</h2>
             @if(!empty($recentTenants))
                 <ul class="recent-list" role="list">
                     @foreach($recentTenants as $tenant)
@@ -249,13 +249,13 @@
                     @endforeach
                 </ul>
             @else
-                <p class="empty">Nessun tenant visitato di recente.</p>
+                <p class="empty">{{ __('easy-multitenancy::central-home.no_recent') }}</p>
             @endif
         </section>
 
         @unless(app()->isProduction())
             <p class="footnote">
-                Pagina predefinita di <code>easy-multitenancy</code>. Definisci una rotta central per <code>/</code> oppure pubblica e personalizza questa view per sostituirla.
+                {!! __('easy-multitenancy::central-home.footnote', ['package' => '<code>easy-multitenancy</code>', 'path' => '<code>/</code>']) !!}
             </p>
         @endunless
     </main>

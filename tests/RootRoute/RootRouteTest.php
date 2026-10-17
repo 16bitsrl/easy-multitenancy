@@ -17,7 +17,7 @@ it('keeps the app root route reachable under its tenant prefix', function () {
 it('still serves the default central home alongside a prefixed app root', function () {
     $this->get('/')
         ->assertOk()
-        ->assertSee('Tenant recenti');
+        ->assertSee('Recent tenants');
 });
 
 it('keeps the prefixed root route when compiling for the route cache', function () {
