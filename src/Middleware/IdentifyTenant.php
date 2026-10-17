@@ -11,6 +11,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 class IdentifyTenant
 {
+    protected const PREVIOUS_DEFAULT = 'easy-multitenancy.previous-url-default';
+
     public function handle(Request $request, Closure $next): Response
     {
         $parameter = config('easy-multitenancy.routes.parameter', 'tenant');
@@ -22,6 +24,9 @@ class IdentifyTenant
         }
 
         $identified = false;
+
+        // Read before identifying: once a tenant is active it shows up as a default too.
+        $request->attributes->set(self::PREVIOUS_DEFAULT, URL::getDefaultParameters()[$parameter] ?? null);
 
         try {
             Tenant::identify($tenant);
@@ -51,12 +56,15 @@ class IdentifyTenant
 
     /**
      * Once the response has been sent, drop what was bound to the tenant (URL
-     * default, session store, auth guards) so it never carries over to the
-     * next request handled by the same process.
+     * default, session store) so it never carries over to the next request
+     * handled by the same process.
      */
     public function terminate(Request $request, Response $response): void
     {
-        URL::defaults([config('easy-multitenancy.routes.parameter', 'tenant') => null]);
+        // Put back whatever default the app had set itself (usually none).
+        URL::defaults([
+            config('easy-multitenancy.routes.parameter', 'tenant') => $request->attributes->get(self::PREVIOUS_DEFAULT),
+        ]);
 
         Tenant::flushSessionState();
     }

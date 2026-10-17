@@ -6,6 +6,7 @@ use Bit16\EasyMultitenancy\Events\DatabaseSwitched;
 use Bit16\EasyMultitenancy\Events\TenantIdentified;
 use Bit16\EasyMultitenancy\Events\TenantNotFound;
 use Bit16\EasyMultitenancy\Exceptions\TenantNotFoundException;
+use Illuminate\Auth\SessionGuard;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\FileStore;
 use Illuminate\Support\Facades\Cache;
@@ -231,9 +232,9 @@ class TenantManager
     }
 
     /**
-     * Drop the resolved session stores and auth guards. They are bound to the
-     * tenant they were opened for (cookie name, database connection), so they
-     * must not be reused by a later request in the same process.
+     * Drop the resolved session stores. They are bound to the tenant they were
+     * opened for (cookie name, database connection), so they must not be
+     * reused by a later request in the same process.
      */
     public function flushSessionState(): void
     {
@@ -252,8 +253,27 @@ class TenantManager
 
         app()->forgetInstance('session.store');
 
-        if (app()->resolved('auth')) {
-            app('auth')->forgetGuards();
+        $this->repointSessionGuards();
+    }
+
+    /**
+     * Point already resolved session guards at the current session store. The
+     * guards are kept (with their user, e.g. from actingAs() in tests); they
+     * just must not write to a store that belongs to another context.
+     */
+    protected function repointSessionGuards(): void
+    {
+        if (! app()->resolved('auth')) {
+            return;
+        }
+
+        $guards = (fn () => $this->guards)->call(app('auth'));
+
+        foreach ($guards as $guard) {
+            if ($guard instanceof SessionGuard) {
+                $store = app('session.store');
+                (fn () => $this->session = $store)->call($guard);
+            }
         }
     }
 
