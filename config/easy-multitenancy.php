@@ -37,8 +37,11 @@ return [
     ],
 
     'storage' => [
+        // Give each tenant its own folder inside the disks below: a directory
+        // for local disks, an object prefix for remote ones such as S3.
         'suffix_enabled' => env('TENANT_STORAGE_SUFFIX', true),
         'path' => env('TENANT_STORAGE_PATH', 'tenants'),
+        'disks' => ['local', 'public'],
     ],
 
     // Track recently visited tenants in a shared cookie (readable via Tenant::getRecentTenants()).

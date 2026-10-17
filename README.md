@@ -49,6 +49,7 @@ return [
     'storage' => [
         'suffix_enabled' => env('TENANT_STORAGE_SUFFIX', true),
         'path' => env('TENANT_STORAGE_PATH', 'tenants'),
+        'disks' => ['local', 'public'],
     ],
 
     'track_recent_tenants' => env('TENANT_TRACK_RECENT', false),
@@ -249,9 +250,10 @@ class Organization extends Model
 }
 ```
 
-> **Storage note:** when storage isolation is enabled the package routes the **default** filesystem
-> disk to a per-tenant directory (and registers a `tenant` disk). Calls that target the default
-> disk are tenant-scoped; explicit `Storage::disk('local')` calls are not.
+> **Storage note:** when storage isolation is enabled, every disk listed in `storage.disks` is
+> scoped to the current tenant: local disks get a `tenants/{tenant}` folder (public URLs follow),
+> remote disks such as S3 a `tenants/{tenant}` object prefix. Add your remote disks to the list to
+> isolate them too. The default disk setting is never changed, and disks not listed are shared.
 
 ### Central Routes
 

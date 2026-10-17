@@ -130,7 +130,6 @@ class TenantManager
             'session.driver' => config('session.driver'),
             'session.connection' => config('session.connection'),
             'cache.stores.database.connection' => config('cache.stores.database.connection'),
-            'filesystems.default' => config('filesystems.default'),
         ];
     }
 
@@ -242,19 +241,39 @@ class TenantManager
         Config::set('session.cookie', $base.'_'.$tenant);
     }
 
+    /**
+     * Scope every configured disk to the tenant: local disks get a tenant
+     * folder (and matching public URL), remote disks such as S3 a tenant
+     * object prefix. The default disk setting is left untouched.
+     */
     protected function setStorageSuffix(string $tenant): void
     {
-        $path = config('easy-multitenancy.storage.path', 'tenants').'/'.$tenant;
+        $segment = trim(config('easy-multitenancy.storage.path', 'tenants'), '/').'/'.$tenant;
 
-        Config::set('filesystems.disks.tenant', [
-            'driver' => 'local',
-            'root' => storage_path('app/'.$path),
-            'throw' => false,
-        ]);
+        foreach ((array) config('easy-multitenancy.storage.disks', ['local', 'public']) as $disk) {
+            $key = "filesystems.disks.{$disk}";
+            $config = array_key_exists($key, $this->snapshot) ? $this->snapshot[$key] : config($key);
 
-        Config::set('filesystems.default', 'tenant');
+            if (! is_array($config)) {
+                continue;
+            }
 
-        Storage::forgetDisk('tenant');
+            $this->snapshot[$key] = $config;
+
+            if (($config['driver'] ?? null) === 'local') {
+                $config['root'] = rtrim($config['root'] ?? storage_path('app'), '/').'/'.$segment;
+
+                if (isset($config['url'])) {
+                    $config['url'] = rtrim($config['url'], '/').'/'.$segment;
+                }
+            } else {
+                // Remote adapters already include the root in generated URLs.
+                $config['root'] = ltrim(trim($config['root'] ?? '', '/').'/'.$segment, '/');
+            }
+
+            Config::set($key, $config);
+            Storage::forgetDisk($disk);
+        }
     }
 
     public function current(): ?string
@@ -442,7 +461,12 @@ class TenantManager
                 $store->setPrefix((string) ($this->snapshot['cache.prefix'] ?? ''));
             }
             Cache::forgetDriver('database');
-            Storage::forgetDisk('tenant');
+
+            foreach (array_keys($this->snapshot) as $key) {
+                if (str_starts_with($key, 'filesystems.disks.')) {
+                    Storage::forgetDisk(substr($key, strlen('filesystems.disks.')));
+                }
+            }
 
             $this->snapshot = [];
         }
