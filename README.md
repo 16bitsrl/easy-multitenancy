@@ -371,6 +371,12 @@ url('/pricing'); // /pricing
 
 Inside a tenant, `url('/')` points at the tenant home; use `route()` to link the central home.
 
+### AI assistants (Laravel Boost)
+
+The package ships a [Laravel Boost](https://github.com/laravel/boost) guideline and two skills:
+`easy-multitenancy` (how to build features in a multi-tenant app) and `easy-multitenancy-upgrade`
+(upgrading from 0.x). Run `php artisan boost:install` (or `boost:update`) in your app to add them.
+
 ### Translations
 
 The default central home follows the application locale; English and Italian are included. Publish
