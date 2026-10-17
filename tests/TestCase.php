@@ -73,6 +73,7 @@ class TestCase extends Orchestra
             $router->get('session/get', fn () => 'who='.(session('who') ?? 'null'));
 
             $router->get('posts/{post}', fn (string $post) => 'post:'.$post);
+            $router->get('legacy/{item}', fn ($tenant, $item) => 'legacy:'.$item)->name('legacy');
             $router->get('bound-posts/{post}', fn (Post $post) => 'title:'.$post->title);
 
             $router->get('links', fn () => [

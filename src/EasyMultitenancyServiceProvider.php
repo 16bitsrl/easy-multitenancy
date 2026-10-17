@@ -8,6 +8,7 @@ use Bit16\EasyMultitenancy\Commands\MigrateAllTenantsCommand;
 use Bit16\EasyMultitenancy\Commands\MigrateTenantCommand;
 use Bit16\EasyMultitenancy\Commands\SeedAllTenantsCommand;
 use Bit16\EasyMultitenancy\Commands\SeedTenantCommand;
+use Bit16\EasyMultitenancy\Commands\UpgradeCheckCommand;
 use Bit16\EasyMultitenancy\Http\Controllers\CentralHomeController;
 use Bit16\EasyMultitenancy\Managers\TenantManager;
 use Bit16\EasyMultitenancy\Middleware\IdentifyTenant;
@@ -48,6 +49,7 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
                 MigrateAllTenantsCommand::class,
                 SeedTenantCommand::class,
                 SeedAllTenantsCommand::class,
+                UpgradeCheckCommand::class,
             ]);
     }
 
