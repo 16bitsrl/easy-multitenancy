@@ -7,6 +7,13 @@
 
 A simple, drop-in Laravel package for database-per-tenant multitenancy using SQLite. Perfect for SaaS applications where each tenant gets their own isolated SQLite database with automatic URL-based tenant identification and seamless database switching.
 
+## Requirements
+
+- PHP 8.4 or later
+- Laravel 13
+
+Upgrading from 0.x? See [UPGRADE.md](UPGRADE.md) and run `php artisan tenant:upgrade-check`.
+
 ## Installation
 
 You can install the package via composer:
@@ -122,6 +129,10 @@ php artisan tenant:create acme
 # Create without user
 php artisan tenant:create acme --no-user
 ```
+
+Tenant identifiers are 2-63 characters of lowercase letters, numbers and single hyphens, not
+starting or ending with a hyphen (`acme`, `acme-corp`). Names that collide with paths the app
+already serves (`api`, `up`, `horizon`, central routes) are rejected.
 
 ### Listing Tenants
 
@@ -360,10 +371,33 @@ url('/pricing'); // /pricing
 
 Inside a tenant, `url('/')` points at the tenant home; use `route()` to link the central home.
 
+### Translations
+
+The default central home follows the application locale; English and Italian are included. Publish
+the translations to change the texts or add a language:
+
+```bash
+php artisan vendor:publish --tag="easy-multitenancy-translations"
+```
+
+### Octane, Livewire and Redis
+
+The tenant context, the session, the logged-in user and the tenant URL default are reset between
+requests, so the package works under Octane. Livewire update requests go through the tenant URL
+(`/{tenant}/livewire-…/update`) and run in the tenant. With Redis as cache or session store, keys are
+prefixed per tenant.
+
 ## Testing
 
 ```bash
 composer test
+```
+
+The Redis tests run only against a Redis server dedicated to them (they write and remove their own
+keys):
+
+```bash
+EASY_MULTITENANCY_TEST_REDIS=127.0.0.1:6379 composer test
 ```
 
 ## Changelog

@@ -1,6 +1,23 @@
 # Changelog
 
-## Unreleased
+## v1.0.0 (unreleased)
+
+See [UPGRADE.md](UPGRADE.md) and run `php artisan tenant:upgrade-check` to find what your app needs to change.
+
+### Breaking changes
+- Requires Laravel 13 and PHP 8.4 or later.
+- The tenant parameter is no longer passed to controllers and route closures: `{tenant}/posts/{post}` calls `function (Post $post)`. Read the tenant with `Tenant::current()`; `$request->route('tenant')` now returns `null`.
+- Tenant identifiers must be 2-63 characters of lowercase letters, numbers and single hyphens, not starting or ending with a hyphen. Databases with other names are no longer listed or reachable.
+- Storage isolation scopes the disks listed in `storage.disks` (default `local` and `public`) instead of switching the default disk to a `tenant` disk. Tenant files move from `storage/app/tenants/{tenant}` to a `tenants/{tenant}` folder inside each disk. Remote disks such as S3 can be listed too and get a `tenants/{tenant}` object prefix.
+- `QueueTenantInjector::shouldRestoreTenant()`, `restoreTenant()` and `cleanupTenant()` are replaced by `beginJob()` / `endJob()`.
+- The central home is in English by default and translatable (English and Italian included).
+- `Tenant::sanitize()` turns spaces and underscores into hyphens and throws when the result is not a valid identifier.
+
+### Added
+- `php artisan tenant:upgrade-check` lists the routes, code, tenant databases and files to update for v1.
+- `Tenant::isReserved()` and `Tenant::flushSessionState()`.
+- `storage.disks` option.
+- Translations for the central home (`lang/vendor/easy-multitenancy` to override).
 
 ### Fixed
 - Sessions are now isolated per tenant: the tenant is identified before the session starts, so the tenant cookie name (and `session.use_tenant_db`) actually apply. Previously a session, including the logged-in user id, was shared across tenants.
@@ -18,13 +35,10 @@
 - `file` and `array` cache stores are isolated per tenant.
 - A `url` (or `read`/`write`) on the tenant connection no longer overrides the tenant database path.
 - `Tenant::forget()` restores the tenant connection configuration; a failed `Tenant::identify()` no longer leaves a partial tenant context.
-- `tenant:create` creates the database exclusively, rejects names reserved by the application (excluded paths, central routes), no longer deletes the new tenant when the app has no `login` route, and hides the admin password while typing.
+- `tenant:create` creates the database exclusively, rejects names reserved by the application (excluded paths, central routes), no longer deletes the new tenant when the app has no `login` route, hides the admin password while typing, and creates the admin with the app's configured user model.
 - The not-found response for an unknown tenant no longer echoes the requested name.
+- Under Octane, sessions and logins no longer carry over from a tenant request to the next request in the same worker, and the session uses the tenant cookie name.
 
-### Changed
-- **Breaking:** the tenant parameter is no longer passed to controllers and route closures; use `Tenant::current()`.
-- **Breaking:** `QueueTenantInjector::shouldRestoreTenant()`, `restoreTenant()` and `cleanupTenant()` are replaced by `beginJob()` / `endJob()`.
-- Added `Tenant::isReserved()`.
 
 ## v0.3.1 - 2026-05-31
 
