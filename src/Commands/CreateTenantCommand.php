@@ -18,6 +18,8 @@ class CreateTenantCommand extends Command
 
     protected $description = 'Create a new tenant database';
 
+    protected const INVALID_NAME = 'The tenant name must be 2-63 characters of lowercase letters, numbers and single hyphens, not starting or ending with a hyphen.';
+
     public function handle(): int
     {
         $name = $this->argument('name') ?? text(
@@ -25,10 +27,7 @@ class CreateTenantCommand extends Command
             placeholder: 'e.g., acme, contoso, client-name',
             required: true,
             validate: fn (string $value) => match (true) {
-                strlen($value) < 2 => 'The tenant name must be at least 2 characters.',
-                strlen($value) > 255 => 'The tenant name is too long (max 255 characters).',
-                !preg_match('/^[a-z0-9-]+$/', $value) => 'The tenant name must contain only lowercase letters, numbers, and hyphens.',
-                str_contains($value, '..') => 'The tenant name contains invalid characters.',
+                ! Tenant::isValid($value) => self::INVALID_NAME,
                 Tenant::isReserved($value) => "The tenant name '{$value}' is reserved by the application.",
                 Tenant::exists($value) => "Tenant '{$value}' already exists.",
                 default => null
@@ -38,7 +37,7 @@ class CreateTenantCommand extends Command
         $name = strtolower(trim((string) $name));
 
         if (! Tenant::isValid($name)) {
-            $this->error('The tenant name must contain only lowercase letters, numbers, and hyphens.');
+            $this->error(self::INVALID_NAME);
 
             return self::FAILURE;
         }
@@ -226,17 +225,9 @@ class CreateTenantCommand extends Command
 
     protected function getUserModelClass(): ?string
     {
-        $possibleClasses = [
-            'App\\Models\\User',
-            'App\\User',
-        ];
+        // The model the app authenticates users with.
+        $class = config('auth.providers.users.model');
 
-        foreach ($possibleClasses as $class) {
-            if (class_exists($class)) {
-                return $class;
-            }
-        }
-
-        return null;
+        return is_string($class) && class_exists($class) ? $class : null;
     }
 }

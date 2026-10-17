@@ -414,6 +414,10 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
         // the route cache relies on to rebuild the URI of grouped routes.
         $route->prefix('{'.$this->tenantParameter().'}');
 
+        // Only well-formed identifiers match, so other paths fall through to
+        // the routes registered after the tenant ones.
+        $route->where($this->tenantParameter(), '[a-z0-9]+(?:-[a-z0-9]+)*');
+
         $action = $route->getAction();
         if (!isset($action['middleware'])) {
             $action['middleware'] = [];

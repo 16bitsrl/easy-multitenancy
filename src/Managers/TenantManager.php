@@ -328,9 +328,15 @@ class TenantManager
     /**
      * Whether a name is a well-formed tenant identifier (does not check existence).
      */
+    /**
+     * Tenant identifiers are 2 to 63 characters of lowercase letters, numbers
+     * and single hyphens, neither leading nor trailing (like a DNS label).
+     */
+    public const NAME_PATTERN = '/^(?=.{2,63}$)[a-z0-9]+(?:-[a-z0-9]+)*$/D';
+
     public function isValid(string $name): bool
     {
-        return (bool) preg_match('/^[a-z0-9\-]+$/', trim($name));
+        return (bool) preg_match(self::NAME_PATTERN, $name);
     }
 
     /**
@@ -376,12 +382,12 @@ class TenantManager
     public function sanitize(string $name): string
     {
         $name = strtolower(trim($name));
-        $name = preg_replace('/[^a-z0-9\-]/', '', $name);
-        $name = preg_replace('/\.\.+/', '', $name);
-        $name = str_replace(['/', '\\', "\0"], '', $name);
+        $name = preg_replace('/[\s_]+/', '-', $name);
+        $name = preg_replace('/[^a-z0-9-]/', '', $name);
+        $name = trim(preg_replace('/-+/', '-', $name), '-');
 
-        if ($name === '') {
-            throw new \InvalidArgumentException('Tenant name cannot be empty after sanitization');
+        if (! $this->isValid($name)) {
+            throw new \InvalidArgumentException("Cannot turn the given name into a valid tenant identifier ('{$name}').");
         }
 
         return $name;
@@ -389,18 +395,8 @@ class TenantManager
 
     protected function sanitizeTenantName(string $tenant): string
     {
-        $tenant = trim($tenant);
-
-        if (empty($tenant)) {
-            throw new TenantNotFoundException('Tenant name cannot be empty');
-        }
-
-        if (strlen($tenant) > 255) {
-            throw new TenantNotFoundException('Tenant name is too long');
-        }
-
-        if (! preg_match('/^[a-z0-9\-]+$/', $tenant)) {
-            throw new TenantNotFoundException('Invalid tenant name format. Only lowercase letters, numbers, and hyphens are allowed.');
+        if (! $this->isValid($tenant)) {
+            throw new TenantNotFoundException('Invalid tenant identifier.');
         }
 
         return $tenant;
@@ -417,9 +413,10 @@ class TenantManager
 
         $files = glob($path.'/*'.$extension) ?: [];
 
-        return array_map(function ($file) use ($extension) {
-            return str_replace($extension, '', basename($file));
-        }, $files);
+        $names = array_map(fn ($file) => basename($file, $extension), $files);
+
+        // Files whose name is not a valid identifier are not reachable tenants.
+        return array_values(array_filter($names, fn ($name) => $this->isValid($name)));
     }
 
     public function forget(): void

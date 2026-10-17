@@ -36,15 +36,33 @@ it('lists all tenants from the database directory', function () {
     expect(Tenant::all())->toEqualCanonicalizing(['acme', 'contoso']);
 });
 
+it('leaves database files with invalid names out of the tenant list', function () {
+    $this->createTenant('acme');
+    touch($this->tenantPath.'/Not_Valid.sqlite');
+
+    expect(Tenant::all())->toBe(['acme']);
+});
+
 it('normalizes user-supplied tenant names', function () {
-    expect(Tenant::sanitize('  ACME Corp '))->toBe('acmecorp');
+    expect(Tenant::sanitize('  ACME Corp '))->toBe('acme-corp');
     expect(Tenant::sanitize('Client-Name'))->toBe('client-name');
+    expect(Tenant::sanitize('client_name--two'))->toBe('client-name-two');
+    expect(Tenant::sanitize('-edge-'))->toBe('edge');
     expect(Tenant::sanitize('../../etc/passwd'))->toBe('etcpasswd');
 });
 
-it('throws when a tenant name is empty after sanitization', function () {
-    Tenant::sanitize('!!!');
-})->throws(InvalidArgumentException::class);
+it('throws when a tenant name is not valid after sanitization', function (string $name) {
+    Tenant::sanitize($name);
+})->with(['!!!', 'a', '--'])->throws(InvalidArgumentException::class);
+
+it('accepts well-formed tenant names', function (string $name) {
+    expect(Tenant::isValid($name))->toBeTrue();
+})->with(['ab', 'acme', 'acme-corp', 'a1-b2-c3', str_repeat('a', 63)]);
+
+it('rejects malformed tenant names', function (string $name) {
+    expect(Tenant::isValid($name))->toBeFalse()
+        ->and(Tenant::getDatabasePath($name))->toBeNull();
+})->with(['a', '-', '-acme', 'acme-', 'acme--corp', 'Acme', 'acme corp', str_repeat('a', 64)]);
 
 it('rejects tenant names with invalid characters', function () {
     expect(Tenant::getDatabasePath('../../etc/passwd'))->toBeNull();

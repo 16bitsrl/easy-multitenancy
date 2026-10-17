@@ -43,3 +43,10 @@ it('isolates two tenants across separate requests', function () {
     $this->get('/contoso/dashboard')->assertSee('tenant:contoso');
     expect(Tenant::current())->toBeNull();
 });
+
+it('does not treat malformed path segments as tenants', function () {
+    $route = app('router')->getRoutes()->getByName('dashboard');
+
+    expect($route->wheres)->toHaveKey('tenant');
+    $this->get('/Not_A_Tenant/dashboard')->assertNotFound();
+});

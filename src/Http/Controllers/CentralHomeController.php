@@ -24,7 +24,7 @@ class CentralHomeController
             ->values()
             ->all();
 
-        return view()->make('easy-multitenancy::central-home', [
+        return view()->make($this->view(), [
             'appName' => config('app.name', 'Laravel'),
             'recentTenants' => $recentTenants,
             'error' => session('error'),
@@ -41,5 +41,13 @@ class CentralHomeController
         }
 
         return redirect('/')->withInput()->with('error', 'Tenant non trovato.');
+    }
+
+    /**
+     * @return view-string
+     */
+    protected function view(): string
+    {
+        return 'easy-multitenancy::central-home';
     }
 }
