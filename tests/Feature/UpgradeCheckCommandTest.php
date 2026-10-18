@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Support\Facades\View;
+
 /*
  * tenant:upgrade-check points at the code an app must change when moving to
  * v1, and exits with a failure code while anything is left to fix.
@@ -61,4 +63,28 @@ it('flags files left in the previous tenant storage folder', function () {
     $this->artisan('tenant:upgrade-check', ['--path' => [$this->scanPath]])
         ->expectsOutputToContain(storage_path('app/tenants')." to {$this->tenantPath}/storage/app/private/tenants (e.g. rsync -a")
         ->assertExitCode(1);
+});
+
+it('flags published views that predate the translatable texts', function () {
+    app('router')->getRoutes()->getByName('legacy')->setAction(['uses' => fn ($item) => $item]);
+    $published = $this->tenantPath.'/views/vendor/easy-multitenancy';
+    mkdir($published, 0755, true);
+    file_put_contents($published.'/central-home.blade.php', '<h1>Tenant recenti</h1>');
+    View::prependNamespace('easy-multitenancy', $published);
+
+    $this->artisan('tenant:upgrade-check', ['--path' => [$this->scanPath]])
+        ->expectsOutputToContain($published.'/central-home.blade.php has fixed texts')
+        ->assertExitCode(1);
+});
+
+it('accepts published views that use the translations', function () {
+    app('router')->getRoutes()->getByName('legacy')->setAction(['uses' => fn ($item) => $item]);
+    $published = $this->tenantPath.'/views/vendor/easy-multitenancy';
+    mkdir($published, 0755, true);
+    file_put_contents($published.'/central-home.blade.php', "<h1>{{ __('easy-multitenancy::central-home.recent') }}</h1>");
+    View::prependNamespace('easy-multitenancy', $published);
+
+    $this->artisan('tenant:upgrade-check', ['--path' => [$this->scanPath]])
+        ->expectsOutputToContain('Nothing to upgrade')
+        ->assertExitCode(0);
 });

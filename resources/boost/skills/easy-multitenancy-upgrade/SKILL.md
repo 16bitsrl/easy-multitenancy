@@ -62,6 +62,10 @@ anything that stores the old name (links, central records).
 disk). Move them with the command the check prints, and move files meant to be public to the public
 disk's `tenants` folder.
 
+**Published views to update**: a view published before 1.0 (usually `central-home.blade.php`) has fixed
+Italian texts. If the app did not customise it, delete it so the default, translated view is used;
+otherwise port the customisations onto the current package view.
+
 ## 4. Behaviour changes to review
 
 - `queue.strict_mode` (default on) now fails jobs whose tenant no longer exists instead of running them.

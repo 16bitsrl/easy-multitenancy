@@ -19,6 +19,9 @@ use Illuminate\Support\Facades\Facade;
  * @method static string sanitize(string $name)
  * @method static string|null getDatabasePath(string $tenant)
  * @method static array<int, string> all()
+ * @method static string backup(string $tenant)
+ * @method static void delete(string $tenant, bool $withFiles = false)
+ * @method static void rename(string $from, string $to)
  * @method static void forget()
  * @method static void flushSessionState()
  *

@@ -169,6 +169,41 @@ php artisan tenant:seed acme --class=DatabaseSeeder
 php artisan tenant:seed-all
 ```
 
+### Running a Command in Every Tenant
+
+```bash
+# Every tenant
+php artisan tenant:run "reports:send --daily"
+
+# Only some tenants
+php artisan tenant:run "reports:send --daily" --tenant=acme --tenant=globex
+```
+
+The command runs once per tenant, with that tenant's database, cache and disks. If it fails in a
+tenant, the others still run and `tenant:run` exits with a failure listing them. It also works from
+the scheduler:
+
+```php
+Schedule::command('tenant:run "reports:send --daily"')->dailyAt('07:00');
+```
+
+### Deleting and Renaming Tenants
+
+```bash
+# Asks for confirmation, keeps a copy of the database in database/tenants/backups
+php artisan tenant:delete acme
+
+# Also delete the tenant folder on the tenant-scoped disks
+php artisan tenant:delete acme --files
+
+# Rename the database and move the files
+php artisan tenant:rename acme acme-corp
+```
+
+`--force` skips the confirmation and `tenant:delete --no-backup` skips the copy. After a rename the
+tenant's URLs change and its users have to log in again; let the queue drain first, since jobs queued
+for the old name fail.
+
 ### Accessing Tenants in Code
 
 The package automatically identifies tenants from the URL and switches the database context. All routes are automatically prefixed with `{tenant}` parameter.
@@ -392,6 +427,43 @@ The tenant context, the session, the logged-in user and the tenant URL default a
 requests, so the package works under Octane. Livewire update requests go through the tenant URL
 (`/{tenant}/livewire-…/update`) and run in the tenant. With Redis as cache or session store, keys are
 prefixed per tenant.
+
+## Testing Your Application
+
+Add the trait to your `TestCase`:
+
+```php
+use Bit16\EasyMultitenancy\Testing\InteractsWithTenants;
+
+abstract class TestCase extends BaseTestCase
+{
+    use InteractsWithTenants;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->actingAsTenant('acme');
+    }
+}
+```
+
+```php
+it('lists the invoices of the tenant', function () {
+    Invoice::factory()->create(['number' => 'A-1']);
+
+    $this->get(route('invoices.index'))->assertSee('A-1');   // GET /acme/invoices
+});
+```
+
+- `actingAsTenant('acme')` creates the tenant when needed and makes it current: models use its
+  database and `route()` includes `/acme`.
+- Tenant databases are created in a temporary folder and removed after each test, so your real
+  tenants are never touched. They are copied from a template that is migrated, and seeded with
+  `seeders.on_create`, once per test run.
+- Each request runs in the tenant of its own URL, and central URLs run without a tenant, as in
+  production. After the request, the tenant the test acts as is current again.
+- `createTenant('globex')` adds more tenants, for example to check that data stays separate.
 
 ## Testing
 

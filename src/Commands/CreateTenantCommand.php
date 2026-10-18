@@ -19,7 +19,7 @@ class CreateTenantCommand extends Command
 
     protected $description = 'Create a new tenant database';
 
-    protected const INVALID_NAME = 'The tenant name must be 2-63 characters of lowercase letters, numbers and single hyphens, not starting or ending with a hyphen.';
+    public const INVALID_NAME = 'The tenant name must be 2-63 characters of lowercase letters, numbers and single hyphens, not starting or ending with a hyphen.';
 
     public function handle(): int
     {

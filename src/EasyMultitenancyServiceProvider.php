@@ -3,9 +3,12 @@
 namespace Bit16\EasyMultitenancy;
 
 use Bit16\EasyMultitenancy\Commands\CreateTenantCommand;
+use Bit16\EasyMultitenancy\Commands\DeleteTenantCommand;
 use Bit16\EasyMultitenancy\Commands\ListTenantsCommand;
 use Bit16\EasyMultitenancy\Commands\MigrateAllTenantsCommand;
 use Bit16\EasyMultitenancy\Commands\MigrateTenantCommand;
+use Bit16\EasyMultitenancy\Commands\RenameTenantCommand;
+use Bit16\EasyMultitenancy\Commands\RunCommand;
 use Bit16\EasyMultitenancy\Commands\SeedAllTenantsCommand;
 use Bit16\EasyMultitenancy\Commands\SeedTenantCommand;
 use Bit16\EasyMultitenancy\Commands\UpgradeCheckCommand;
@@ -49,6 +52,9 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
                 MigrateAllTenantsCommand::class,
                 SeedTenantCommand::class,
                 SeedAllTenantsCommand::class,
+                DeleteTenantCommand::class,
+                RenameTenantCommand::class,
+                RunCommand::class,
                 UpgradeCheckCommand::class,
             ]);
     }

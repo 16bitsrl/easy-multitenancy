@@ -7,5 +7,6 @@ This app is multi-tenant with `16bit/easy-multitenancy`: one SQLite database per
 - Landlord routes go inside `Tenant::centralRoutes(function () { ... })`. Models that always live in the central database use the `UsesCentralConnection` trait.
 - Queued jobs carry the tenant automatically. Jobs that must run without a tenant implement `Bit16\EasyMultitenancy\Contracts\GlobalJob`.
 - Files: the disks in `easy-multitenancy.storage.disks` are already tenant-scoped; do not add the tenant to paths yourself.
-- Tenant migrations live in `database/migrations` and run with `php artisan tenant:migrate {tenant}` or `tenant:migrate-all`.
+- Tenant migrations live in `database/migrations` and run with `php artisan tenant:migrate {tenant}` or `tenant:migrate-all`. Run any other command in every tenant with `tenant:run "command --options"`.
+- In tests, use the `Bit16\EasyMultitenancy\Testing\InteractsWithTenants` trait and `$this->actingAsTenant('acme')`.
 - Activate the `easy-multitenancy` skill for details, and `easy-multitenancy-upgrade` when upgrading from 0.x.

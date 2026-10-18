@@ -5,7 +5,7 @@ description: >
   tenant from the first URL segment). Use when adding routes, controllers, Livewire components, models,
   migrations, queued jobs, file storage, cache or tests in such an app, when creating or migrating
   tenants, or when something reads or writes the wrong tenant's data.
-compatibility: Requires 16bit/easy-multitenancy ^1.0 on Laravel 13.
+compatibility: Requires 16bit/easy-multitenancy ^1.1 on Laravel 13.
 ---
 
 # Easy Multitenancy
@@ -64,8 +64,9 @@ Tenant::centralRoutes(function () {
 - Jobs dispatched inside a tenant carry it and run in that tenant; nothing to add to the job.
 - Jobs for all tenants or the landlord: implement `GlobalJob`, list them in `queue.excluded_jobs` /
   `queue.excluded_patterns`, or set `public bool $tenantAware = false;`.
-- To run something for every tenant, loop over `Tenant::all()` and dispatch one job per tenant from
-  inside `Tenant::identify($name)` ... `Tenant::forget()`.
+- To run an Artisan command in every tenant (also from the scheduler), use
+  `php artisan tenant:run "reports:send --daily"` (`--tenant=acme` to pick tenants). It keeps going
+  when one tenant fails and exits with a failure listing them.
 
 ## Running code for a tenant outside a request
 
@@ -78,8 +79,37 @@ try {
 }
 ```
 
+## Managing tenants
+
+- `tenant:create`, `tenant:list`, `tenant:migrate(-all)`, `tenant:seed(-all)`.
+- `tenant:delete acme` asks for confirmation and keeps a copy of the database in
+  `database/tenants/backups`; `--files` also deletes the tenant folder on the scoped disks.
+- `tenant:rename acme acme-corp` moves the database and files. URLs change and users log in again;
+  let the queue drain first. Both commands are destructive: ask the user before running them.
+
 ## Tests
 
-- Create the tenant database in the test, then hit tenant URLs: `$this->get('/acme/invoices')`.
-- Use a temporary `easy-multitenancy.database.path` so tests never touch real tenant databases.
-- Assert isolation by writing in one tenant and reading from another.
+Use the package's trait in the app's `TestCase`:
+
+```php
+use Bit16\EasyMultitenancy\Testing\InteractsWithTenants;
+
+abstract class TestCase extends BaseTestCase
+{
+    use InteractsWithTenants;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->actingAsTenant('acme');
+    }
+}
+```
+
+- `actingAsTenant('acme')` creates the tenant if needed (migrated, seeded with
+  `seeders.on_create`), makes it current for the test body and sets the URL default, so `route()`
+  includes `/acme`. Tenant databases live in a temporary folder and are removed after each test.
+- Each request made by the test runs in the tenant of its URL (central URLs run without a tenant);
+  the tenant the test acts as is current again afterwards.
+- `createTenant('globex')` adds more tenants; assert isolation by writing in one and reading from another.

@@ -23,6 +23,7 @@ Run all three before committing. Redis tests are skipped unless a dedicated serv
 - `src/TenantUrlGenerator.php`: tenant-aware `route()` / `url()`.
 - `src/Queue/QueueTenantInjector.php`: tenant in job payloads, context around each job.
 - `src/Commands/`: `tenant:*` Artisan commands, including `tenant:upgrade-check`.
+- `src/Testing/InteractsWithTenants.php`: test helpers shipped to apps (`actingAsTenant`, `createTenant`).
 - `resources/lang/`: translations (English is the base language, Italian included).
 - `resources/boost/`: Laravel Boost guideline and skills shipped to apps. Keep them in sync with
   behaviour changes.

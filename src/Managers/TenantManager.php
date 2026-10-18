@@ -291,7 +291,7 @@ class TenantManager
      */
     protected function setStorageSuffix(string $tenant): void
     {
-        $segment = trim(config('easy-multitenancy.storage.path', 'tenants'), '/').'/'.$tenant;
+        $segment = $this->storageSegment($tenant);
 
         foreach ((array) config('easy-multitenancy.storage.disks', ['local', 'public']) as $disk) {
             $key = "filesystems.disks.{$disk}";
@@ -486,6 +486,145 @@ class TenantManager
 
         // Files whose name is not a valid identifier are not reachable tenants.
         return array_values(array_filter($names, fn ($name) => $this->isValid($name)));
+    }
+
+    /**
+     * Copy a tenant database into the `backups` folder next to the tenant
+     * databases. The copy is consistent even while the tenant is in use.
+     */
+    public function backup(string $tenant): string
+    {
+        $database = $this->existingDatabase($tenant);
+        $folder = dirname($database).'/backups';
+
+        if (! is_dir($folder)) {
+            mkdir($folder, 0755, true);
+        }
+
+        $backup = $folder.'/'.$tenant.'-'.date('Ymd-His').'.sqlite';
+
+        for ($i = 2; file_exists($backup); $i++) {
+            $backup = $folder.'/'.$tenant.'-'.date('Ymd-His').'-'.$i.'.sqlite';
+        }
+
+        $pdo = new \PDO('sqlite:'.$database);
+        $pdo->exec('VACUUM INTO '.$pdo->quote($backup));
+
+        return $backup;
+    }
+
+    /**
+     * Delete a tenant database and, when asked, its folder on every scoped disk.
+     */
+    public function delete(string $tenant, bool $withFiles = false): void
+    {
+        $database = $this->existingDatabase($tenant);
+
+        $this->release($tenant);
+
+        foreach ($this->databaseFiles($database) as $file) {
+            unlink($file);
+        }
+
+        if ($withFiles) {
+            foreach ($this->scopedDisks() as $disk) {
+                Storage::disk($disk)->deleteDirectory($this->storageSegment($tenant));
+            }
+        }
+    }
+
+    /**
+     * Rename a tenant: its database and its folder on every scoped disk.
+     */
+    public function rename(string $from, string $to): void
+    {
+        $database = $this->existingDatabase($from);
+        $target = $this->getDatabasePath($to);
+
+        if ($target === null) {
+            throw new \InvalidArgumentException("'{$to}' is not a valid tenant identifier.");
+        }
+
+        // Claim the new name first, so a tenant created meanwhile is never overwritten.
+        $handle = @fopen($target, 'x');
+
+        if ($handle === false) {
+            throw new \InvalidArgumentException("Tenant '{$to}' already exists.");
+        }
+
+        fclose($handle);
+
+        $this->release($from);
+
+        foreach ($this->databaseFiles($database) as $file) {
+            rename($file, $target.substr($file, strlen($database)));
+        }
+
+        foreach ($this->scopedDisks() as $disk) {
+            $storage = Storage::disk($disk);
+            $old = $this->storageSegment($from);
+            $new = $this->storageSegment($to);
+
+            foreach ($storage->allFiles($old) as $file) {
+                $storage->move($file, $new.substr($file, strlen($old)));
+            }
+
+            $storage->deleteDirectory($old);
+        }
+    }
+
+    protected function existingDatabase(string $tenant): string
+    {
+        $database = $this->getDatabasePath($tenant);
+
+        if ($database === null || ! file_exists($database)) {
+            throw new TenantNotFoundException($tenant);
+        }
+
+        return $database;
+    }
+
+    /**
+     * Leave the tenant and close this process's connection to its database.
+     */
+    protected function release(string $tenant): void
+    {
+        if ($this->currentTenant === $tenant) {
+            $this->forget();
+        }
+
+        DB::purge(config('easy-multitenancy.database.connection', 'tenant'));
+    }
+
+    /**
+     * The database file and the SQLite side files (WAL, shared memory, journal) next to it.
+     *
+     * @return array<int, string>
+     */
+    protected function databaseFiles(string $database): array
+    {
+        return array_values(array_filter(
+            [$database, $database.'-wal', $database.'-shm', $database.'-journal'],
+            'file_exists'
+        ));
+    }
+
+    /** @return array<int, string> */
+    protected function scopedDisks(): array
+    {
+        if (! config('easy-multitenancy.storage.suffix_enabled', true)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            (array) config('easy-multitenancy.storage.disks', ['local', 'public']),
+            fn ($disk) => is_array(config("filesystems.disks.{$disk}"))
+        ));
+    }
+
+    protected function storageSegment(string $tenant): string
+    {
+        return trim(config('easy-multitenancy.storage.path', 'tenants'), '/').'/'.$tenant;
     }
 
     public function forget(): void

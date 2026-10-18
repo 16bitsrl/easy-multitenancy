@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.0 - 2026-10-19
+
+### Added
+- `Bit16\EasyMultitenancy\Testing\InteractsWithTenants` for application tests: `actingAsTenant()` and `createTenant()`, with tenant databases in a temporary folder, migrated and seeded once per run.
+- `php artisan tenant:run "command"` runs an Artisan command in every tenant (or the ones given with `--tenant`), also from the scheduler.
+- `php artisan tenant:delete` (confirmation, database backup, optional `--files`) and `php artisan tenant:rename`.
+- `Tenant::backup()`, `Tenant::delete()` and `Tenant::rename()`.
+- `tenant:upgrade-check` flags published views that predate the translatable texts.
+
 ## v1.0.1 - 2026-10-19
 
 ### Fixed

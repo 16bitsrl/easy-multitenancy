@@ -5,6 +5,15 @@ parameters:
     level: 8
     paths:
         - src
+        - tests/AppTestCase.php
     tmpDir: build/phpstan
     checkOctaneCompatibility: true
     checkModelProperties: true
+    ignoreErrors:
+        # Testbench's own TestCase contract declares an older call() signature
+        # than Laravel's; only the package's test case sees it.
+        -
+            identifiers:
+                - method.childParameterType
+                - method.childReturnType
+            path: src/Testing/InteractsWithTenants.php

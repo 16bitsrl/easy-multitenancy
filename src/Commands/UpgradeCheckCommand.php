@@ -7,6 +7,7 @@ use Closure;
 use Illuminate\Console\Command;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\File;
+use Illuminate\View\FileViewFinder;
 use ReflectionFunction;
 use ReflectionFunctionAbstract;
 use ReflectionMethod;
@@ -33,6 +34,7 @@ class UpgradeCheckCommand extends Command
         $this->checkSourceCode();
         $this->checkTenantNames();
         $this->checkStorageLocation();
+        $this->checkPublishedViews();
 
         if ($this->findings === []) {
             $this->components->info('Nothing to upgrade: this application is ready for easy-multitenancy v1.');
@@ -162,6 +164,36 @@ class UpgradeCheckCommand extends Command
             if (! Tenant::isValid($name)) {
                 $this->findings['Tenant databases with a name that is no longer valid (rename the file to a valid identifier)'][] =
                     "{$name} ({$file})";
+            }
+        }
+    }
+
+    /**
+     * Views published before v1 have fixed (Italian) texts instead of the
+     * translations the package views use now.
+     */
+    protected function checkPublishedViews(): void
+    {
+        $package = realpath(__DIR__.'/../../resources/views');
+        $finder = app('view')->getFinder();
+        $hints = $finder instanceof FileViewFinder ? $finder->getHints()['easy-multitenancy'] ?? [] : [];
+
+        foreach ($hints as $folder) {
+            if (! is_dir($folder) || realpath($folder) === $package) {
+                continue;
+            }
+
+            foreach (File::allFiles($folder) as $file) {
+                $original = $package.'/'.$file->getRelativePathname();
+
+                if (! is_file($original)
+                    || ! str_contains((string) file_get_contents($original), 'easy-multitenancy::')
+                    || str_contains($file->getContents(), 'easy-multitenancy::')) {
+                    continue;
+                }
+
+                $this->findings['Published views to update'][] =
+                    "{$this->relativePath($file->getPathname())} has fixed texts: compare it with {$this->relativePath($original)}, or delete it to use the default view, which follows the app language.";
             }
         }
     }
