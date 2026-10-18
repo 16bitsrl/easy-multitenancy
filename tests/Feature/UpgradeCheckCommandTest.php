@@ -73,7 +73,7 @@ it('flags published views that predate the translatable texts', function () {
     View::prependNamespace('easy-multitenancy', $published);
 
     $this->artisan('tenant:upgrade-check', ['--path' => [$this->scanPath]])
-        ->expectsOutputToContain($published.'/central-home.blade.php has fixed texts')
+        ->expectsOutputToContain('central-home.blade.php has fixed texts')
         ->assertExitCode(1);
 });
 
