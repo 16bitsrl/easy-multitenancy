@@ -75,7 +75,7 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
             );
 
             $url->setSessionResolver(function () {
-                return $this->app['session'] ?? null;
+                return $this->app->bound('session') ? $this->app->make('session') : null;
             });
 
             $url->setKeyResolver(function () {
@@ -278,7 +278,7 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
         ];
 
         foreach ($events as $event) {
-            $this->app['events']->listen($event, function () {
+            $this->app->make('events')->listen($event, function () {
                 if ($this->app->resolved('tenant')) {
                     $this->app->make('tenant')->forget();
                     $this->app->make('tenant')->flushSessionState();
@@ -361,6 +361,10 @@ class EasyMultitenancyServiceProvider extends PackageServiceProvider
         $routes->refreshActionLookups();
     }
 
+    /**
+     * @param  array<int, string>  $excludedRoutes
+     * @param  array<int, string>  $excludedPatterns
+     */
     protected function shouldPrefixRoute(Route $route, array $excludedRoutes, array $excludedPatterns): bool
     {
         // Central routes are never tenant-prefixed.

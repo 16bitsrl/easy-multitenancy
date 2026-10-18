@@ -4,6 +4,7 @@ namespace Bit16\EasyMultitenancy\Commands;
 
 use Bit16\EasyMultitenancy\Facades\Tenant;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
@@ -35,8 +36,9 @@ class CreateTenantCommand extends Command
         );
 
         $name = strtolower(trim((string) $name));
+        $database = Tenant::getDatabasePath($name);
 
-        if (! Tenant::isValid($name)) {
+        if ($database === null) {
             $this->error(self::INVALID_NAME);
 
             return self::FAILURE;
@@ -78,7 +80,6 @@ class CreateTenantCommand extends Command
             $password = $passwordInput !== '' ? $passwordInput : null;
         }
 
-        $database = Tenant::getDatabasePath($name);
         $path = dirname($database);
 
         if (!is_dir($path)) {
@@ -112,7 +113,7 @@ class CreateTenantCommand extends Command
 
             $this->runConfiguredSeeders($name);
 
-            if (!$this->option('no-user')) {
+            if ($email !== null) {
                 $credentials = $this->createDefaultUser($name, $email, $password);
 
                 if ($credentials) {
@@ -165,12 +166,12 @@ class CreateTenantCommand extends Command
                 return null;
             }
 
-            $user = new $userClass();
-            $user->name = ucfirst($tenant);
-            $user->email = $email;
-            $user->password = Hash::make($finalPassword);
-            $user->email_verified_at = now();
-            $user->save();
+            (new $userClass())->forceFill([
+                'name' => ucfirst($tenant),
+                'email' => $email,
+                'password' => Hash::make($finalPassword),
+                'email_verified_at' => now(),
+            ])->save();
 
             return [
                 'email' => $email,
@@ -223,11 +224,12 @@ class CreateTenantCommand extends Command
         }
     }
 
+    /** @return class-string<Model>|null */
     protected function getUserModelClass(): ?string
     {
         // The model the app authenticates users with.
         $class = config('auth.providers.users.model');
 
-        return is_string($class) && class_exists($class) ? $class : null;
+        return is_string($class) && is_subclass_of($class, Model::class) ? $class : null;
     }
 }

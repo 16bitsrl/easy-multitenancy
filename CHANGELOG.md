@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.1 - 2026-10-19
+
+### Fixed
+- The recent tenants list (central home, `Tenant::getRecentTenants()`) skips deleted tenants and malformed cookie entries instead of linking to them or failing.
+- `tenant:create` skips the default user when `auth.providers.users.model` is not an Eloquent model, instead of stopping with an error.
+- Static analysis raised to PHPStan level 8.
+
 ## v1.0.0 - 2026-10-18
 
 See [UPGRADE.md](UPGRADE.md) and run `php artisan tenant:upgrade-check` to find what your app needs to change.

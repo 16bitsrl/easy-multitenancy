@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static string|null current()
  * @method static string centralConnection()
  * @method static void centralRoutes(\Closure $callback)
- * @method static array getRecentTenants()
+ * @method static array<string, int> getRecentTenants()
  * @method static string|null id()
  * @method static string|null database()
  * @method static bool exists(string $tenant)
@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static bool isReserved(string $name)
  * @method static string sanitize(string $name)
  * @method static string|null getDatabasePath(string $tenant)
- * @method static array all()
+ * @method static array<int, string> all()
  * @method static void forget()
  * @method static void flushSessionState()
  *

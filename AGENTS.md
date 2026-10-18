@@ -7,7 +7,7 @@ for database-per-tenant multitenancy (one SQLite file per tenant, tenant from th
 
 ```bash
 composer test      # Pest
-composer analyse   # PHPStan (Larastan), level 5
+composer analyse   # PHPStan (Larastan), level 8
 composer format    # Pint
 ```
 

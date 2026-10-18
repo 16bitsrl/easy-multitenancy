@@ -30,3 +30,15 @@ it('does not overwrite an existing tenant database', function () {
 
     expect(Tenant::exists('acme'))->toBeTrue();
 });
+
+it('creates the tenant without a user when the configured user model is not an Eloquent model', function () {
+    config()->set('auth.providers.users.model', \stdClass::class);
+
+    $this->artisan('tenant:create', ['name' => 'acme'])
+        ->expectsQuestion('Admin email address', 'admin@acme.test')
+        ->expectsQuestion('Admin password (leave blank to generate)', '')
+        ->expectsOutputToContain('User model not found')
+        ->assertExitCode(0);
+
+    expect(Tenant::exists('acme'))->toBeTrue();
+});

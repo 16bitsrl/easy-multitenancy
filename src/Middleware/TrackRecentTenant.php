@@ -30,32 +30,16 @@ class TrackRecentTenant
         $max = (int) config('easy-multitenancy.recent_tenants.max', 5);
         $lifetime = (int) config('easy-multitenancy.recent_tenants.lifetime', 43200);
 
-        $recent = $this->readRecent($request, $cookieName);
+        $recent = Tenant::getRecentTenants();
         $recent[$tenant] = now()->timestamp;
 
         arsort($recent);
         $recent = array_slice($recent, 0, max(1, $max), true);
 
         $response->headers->setCookie(
-            cookie($cookieName, json_encode($recent), $lifetime, '/')
+            cookie($cookieName, json_encode($recent, JSON_THROW_ON_ERROR), $lifetime, '/')
         );
 
         return $response;
-    }
-
-    /**
-     * @return array<string, int>
-     */
-    protected function readRecent(Request $request, string $cookieName): array
-    {
-        $value = $request->cookie($cookieName);
-
-        if (! is_string($value)) {
-            return [];
-        }
-
-        $decoded = json_decode($value, true);
-
-        return is_array($decoded) ? $decoded : [];
     }
 }

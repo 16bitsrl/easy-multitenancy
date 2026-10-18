@@ -3,6 +3,8 @@
 namespace Bit16\EasyMultitenancy\Http\Controllers;
 
 use Bit16\EasyMultitenancy\Facades\Tenant;
+use Illuminate\Contracts\View\View;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -13,13 +15,13 @@ use Illuminate\Support\Carbon;
  */
 class CentralHomeController
 {
-    public function show(Request $request)
+    public function show(Request $request): View
     {
         $recentTenants = collect(Tenant::getRecentTenants())
             ->map(fn ($timestamp, $name) => [
                 'name' => $name,
                 'url' => url('/'.$name),
-                'when' => Carbon::createFromTimestamp($timestamp)->locale(app()->getLocale())->diffForHumans(),
+                'when' => Carbon::createFromTimestamp($timestamp)->diffForHumans(['locale' => app()->getLocale()]),
             ])
             ->values()
             ->all();
@@ -32,7 +34,7 @@ class CentralHomeController
         ]);
     }
 
-    public function submit(Request $request)
+    public function submit(Request $request): RedirectResponse
     {
         $candidate = strtolower(trim((string) $request->input('tenant')));
 

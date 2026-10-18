@@ -19,7 +19,7 @@ class IdentifyTenant
         $route = $request->route();
         $tenant = $route?->parameter($parameter);
 
-        if (! $tenant) {
+        if (! is_string($tenant) || $tenant === '') {
             return $next($request);
         }
 

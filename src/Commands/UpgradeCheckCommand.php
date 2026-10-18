@@ -148,7 +148,7 @@ class UpgradeCheckCommand extends Command
     {
         $paths = $this->option('path') ?: [base_path('app'), base_path('routes'), resource_path('views')];
 
-        return array_values(array_filter($paths, 'is_dir'));
+        return array_values(array_filter($paths, fn ($path) => is_string($path) && is_dir($path)));
     }
 
     protected function checkTenantNames(): void

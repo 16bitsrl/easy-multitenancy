@@ -47,3 +47,30 @@ it('shows a generic "tenant not found" for a non-existent tenant and keeps the i
         ->assertSee('Tenant not found.')
         ->assertSee('value="ghost"', false);
 });
+
+it('lists only existing tenants from the recent-tenants cookie and ignores malformed entries', function () {
+    $this->createTenant('acme');
+
+    $this->withCookie('em_recent_tenants', json_encode([
+        'acme' => 100,
+        'deleted' => 200,
+        'Not Valid' => 300,
+        'globex' => 'yesterday',
+    ]))
+        ->get('/')
+        ->assertOk()
+        ->assertSee('/acme', false)
+        ->assertDontSee('/deleted', false)
+        ->assertDontSee('Not Valid')
+        ->assertDontSee('globex');
+});
+
+it('shows when each recent tenant was visited in the application locale', function () {
+    $this->createTenant('acme');
+    app()->setLocale('it');
+
+    $this->withCookie('em_recent_tenants', json_encode(['acme' => now()->subHours(2)->timestamp]))
+        ->get('/')
+        ->assertOk()
+        ->assertSee('2 ore fa');
+});

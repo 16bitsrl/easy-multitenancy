@@ -35,6 +35,7 @@ class TenantUrlGenerator extends UrlGenerator
         return parent::to($path, $extra, $secure);
     }
 
+    /** @return array<string, mixed> */
     public function getDefaultParameters()
     {
         $defaults = parent::getDefaultParameters();

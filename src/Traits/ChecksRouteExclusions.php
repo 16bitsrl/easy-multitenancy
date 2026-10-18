@@ -15,6 +15,10 @@ trait ChecksRouteExclusions
         return $this->isRouteExcluded($route, $name, $uri, $excludedRoutes, $excludedPatterns);
     }
 
+    /**
+     * @param  array<int, string>  $excludedRoutes
+     * @param  array<int, string>  $excludedPatterns
+     */
     protected function isRouteExcluded(?Route $route, ?string $name, ?string $uri, array $excludedRoutes, array $excludedPatterns): bool
     {
         $placeholder = '{'.config('easy-multitenancy.routes.parameter', 'tenant').'}/';

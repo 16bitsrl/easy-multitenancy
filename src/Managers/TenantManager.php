@@ -39,13 +39,13 @@ class TenantManager
 
     public function identify(string $tenant): void
     {
-        if (! $this->exists($tenant)) {
+        $database = $this->getDatabasePath($tenant);
+
+        if ($database === null || ! file_exists($database)) {
             event(new TenantNotFound($tenant));
 
             throw new TenantNotFoundException($tenant);
         }
-
-        $database = $this->getDatabasePath($tenant);
 
         try {
             $this->currentTenant = $tenant;
@@ -365,9 +365,17 @@ class TenantManager
             return [];
         }
 
-        arsort($decoded);
+        // The cookie outlives tenants and may carry anything: keep only
+        // tenants that still exist, with a usable timestamp.
+        $recent = array_filter(
+            $decoded,
+            fn ($timestamp, $name) => is_int($timestamp) && $this->exists((string) $name),
+            ARRAY_FILTER_USE_BOTH
+        );
 
-        return $decoded;
+        arsort($recent);
+
+        return $recent;
     }
 
     public function id(): ?string
@@ -444,9 +452,7 @@ class TenantManager
     public function sanitize(string $name): string
     {
         $name = strtolower(trim($name));
-        $name = preg_replace('/[\s_]+/', '-', $name);
-        $name = preg_replace('/[^a-z0-9-]/', '', $name);
-        $name = trim(preg_replace('/-+/', '-', $name), '-');
+        $name = trim(preg_replace(['/[\s_]+/', '/[^a-z0-9-]/', '/-+/'], ['-', '', '-'], $name) ?? '', '-');
 
         if (! $this->isValid($name)) {
             throw new \InvalidArgumentException("Cannot turn the given name into a valid tenant identifier ('{$name}').");
@@ -464,6 +470,7 @@ class TenantManager
         return $tenant;
     }
 
+    /** @return array<int, string> */
     public function all(): array
     {
         $path = config('easy-multitenancy.database.path', database_path('tenants'));

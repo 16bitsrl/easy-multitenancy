@@ -33,6 +33,10 @@ it('writes the visited tenant into an encrypted shared cookie', function () {
 });
 
 it('reads and sorts recent tenants from the cookie, newest first', function () {
+    foreach (['acme', 'contoso', 'globex'] as $name) {
+        $this->createTenant($name);
+    }
+
     request()->cookies->set('em_recent_tenants', json_encode([
         'acme' => 100,
         'contoso' => 300,
