@@ -1,0 +1,2 @@
+providers:
+  - Bit16\EasyMultitenancy\EasyMultitenancyServiceProvider
