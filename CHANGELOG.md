@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.0.0 (unreleased)
+## v1.0.0 - 2026-10-18
 
 See [UPGRADE.md](UPGRADE.md) and run `php artisan tenant:upgrade-check` to find what your app needs to change.
 
